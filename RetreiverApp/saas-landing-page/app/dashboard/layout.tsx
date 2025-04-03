@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { BarChart3, Home, LogOut, Package, ShoppingBasket, Store, User } from "lucide-react"
+import { BarChart3, Home, LogOut, Package, ShoppingBasket, Store, User, UserCheck } from "lucide-react"
 
 export default function DashboardLayout({
   children,
@@ -124,20 +124,37 @@ export default function DashboardLayout({
               </Link>
             )}
 
+            {/* Staff-only options */}
             {userType === "staff" && (
-              <Link href="/dashboard/analytics" passHref>
-                <Button
-                  variant={pathname === "/dashboard/analytics" ? "default" : "ghost"}
-                  className={`w-full justify-start ${
-                    pathname === "/dashboard/analytics"
-                      ? "bg-primary text-black hover:bg-primary/90"
-                      : "hover:bg-gray-100"
-                  }`}
-                >
-                  <BarChart3 className="mr-2 h-4 w-4" />
-                  Analytics
-                </Button>
-              </Link>
+              <>
+                <Link href="/dashboard/checkout" passHref>
+                  <Button
+                    variant={pathname === "/dashboard/checkout" ? "default" : "ghost"}
+                    className={`w-full justify-start ${
+                      pathname === "/dashboard/checkout"
+                        ? "bg-primary text-black hover:bg-primary/90"
+                        : "hover:bg-gray-100"
+                    }`}
+                  >
+                    <UserCheck className="mr-2 h-4 w-4" />
+                    Student Checkout
+                  </Button>
+                </Link>
+
+                <Link href="/dashboard/analytics" passHref>
+                  <Button
+                    variant={pathname === "/dashboard/analytics" ? "default" : "ghost"}
+                    className={`w-full justify-start ${
+                      pathname === "/dashboard/analytics"
+                        ? "bg-primary text-black hover:bg-primary/90"
+                        : "hover:bg-gray-100"
+                    }`}
+                  >
+                    <BarChart3 className="mr-2 h-4 w-4" />
+                    Analytics
+                  </Button>
+                </Link>
+              </>
             )}
           </nav>
 

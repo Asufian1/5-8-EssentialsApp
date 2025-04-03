@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowDown, ArrowUp, Package, ShoppingBasket, Users, MapPin } from "lucide-react"
+import { ArrowDown, ArrowUp, Package, ShoppingBasket, Users, MapPin, UserCheck } from "lucide-react"
 import { getInventoryItems, getTransactions } from "@/lib/data"
 import type { Transaction } from "@/lib/types"
 import Link from "next/link"
@@ -157,6 +157,15 @@ export default function Dashboard() {
                   <Button className="w-full bg-primary text-black hover:bg-primary/90 h-auto py-4 flex flex-col items-center">
                     <ShoppingBasket className="h-6 w-6 mb-2" />
                     <span>Take Food Items</span>
+                  </Button>
+                </Link>
+              )}
+
+              {userType === "staff" && (
+                <Link href="/dashboard/checkout" passHref>
+                  <Button className="w-full bg-primary text-black hover:bg-primary/90 h-auto py-4 flex flex-col items-center">
+                    <UserCheck className="h-6 w-6 mb-2" />
+                    <span>Student Checkout</span>
                   </Button>
                 </Link>
               )}
