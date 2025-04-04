@@ -36,6 +36,16 @@
       "static/chunks/main-app.js",
       "static/chunks/app/dashboard/inventory/page.js"
     ],
+    "/dashboard/checkout/loading": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/checkout/loading.js"
+    ],
+    "/dashboard/checkout/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/checkout/page.js"
+    ],
     "/dashboard/take-items/loading": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
