@@ -1,5 +1,7 @@
 "use client"
 
+//this is for the usability for the shopping cart and styles for the taking items ability
+
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
