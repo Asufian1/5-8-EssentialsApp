@@ -1,5 +1,7 @@
 "use client"
 
+//general layout of the Dashboard
+
 import type React from "react"
 
 import { useEffect, useState } from "react"
