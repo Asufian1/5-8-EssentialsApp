@@ -1,4 +1,6 @@
 "use client"
+// Creates a customizable, accessible alert dialog component using Radix UI primitives.
+
 
 import * as React from "react"
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
