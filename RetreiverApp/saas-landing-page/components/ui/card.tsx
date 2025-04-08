@@ -2,6 +2,9 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+// Implements a modular Card component with subcomponents (header, title, description, content, and footer) for consistent and customizable layout styling.
+
+
 const Card = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
