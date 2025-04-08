@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Sets up Tailwind's base, components, and utilities layers with custom global styles and theme variables for light and dark modes. */
+
+
 body {
   font-family: Arial, Helvetica, sans-serif;
 }
