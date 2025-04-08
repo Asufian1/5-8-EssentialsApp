@@ -1,5 +1,8 @@
 "use client"
 
+// Implements an accessible, customizable command palette dialog with search input, command grouping, and keyboard shortcuts using cmdk and dialog components.
+
+
 import * as React from "react"
 import { type DialogProps } from "@radix-ui/react-dialog"
 import { Command as CommandPrimitive } from "cmdk"
