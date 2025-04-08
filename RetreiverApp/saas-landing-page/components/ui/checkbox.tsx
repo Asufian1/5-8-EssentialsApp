@@ -1,5 +1,8 @@
 "use client"
 
+// Defines a customizable, accessible checkbox component using Radix UI primitives and a check icon indicator.
+
+
 import * as React from "react"
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox"
 import { Check } from "lucide-react"
