@@ -1,5 +1,8 @@
 "use client"
 
+// Provides composable, accessible form components that integrate react-hook-form with custom UI primitives for fields, labels, controls, descriptions, and error messages.
+
+
 import * as React from "react"
 import * as LabelPrimitive from "@radix-ui/react-label"
 import { Slot } from "@radix-ui/react-slot"
