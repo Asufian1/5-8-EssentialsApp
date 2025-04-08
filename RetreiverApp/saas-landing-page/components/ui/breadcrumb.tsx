@@ -4,6 +4,9 @@ import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+// Implements an accessible breadcrumb navigation system with customizable items, separators, and ellipsis using Radix UI's Slot and lucide-react icons.
+
+
 const Breadcrumb = React.forwardRef<
   HTMLElement,
   React.ComponentPropsWithoutRef<"nav"> & {
