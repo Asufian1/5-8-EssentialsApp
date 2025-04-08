@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a customizable OTP input system with grouped digit slots featuring active caret animations and separators, using the input-otp context and styled with custom utility classes.
+
+
 import * as React from "react"
 import { OTPInput, OTPInputContext } from "input-otp"
 import { Dot } from "lucide-react"
