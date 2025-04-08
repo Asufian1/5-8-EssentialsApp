@@ -1,4 +1,6 @@
 "use client"
+// Creates a customizable, accessible accordion component using Radix UI primitives.
+
 
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
