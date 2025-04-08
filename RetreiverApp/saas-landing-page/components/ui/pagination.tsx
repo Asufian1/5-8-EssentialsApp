@@ -4,6 +4,9 @@ import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ButtonProps, buttonVariants } from "@/components/ui/button"
 
+// Implements a customizable, accessible pagination component suite with page links, previous/next buttons, and an ellipsis indicator using Lucide icons.
+
+
 const Pagination = ({ className, ...props }: React.ComponentProps<"nav">) => (
   <nav
     role="navigation"
