@@ -1,5 +1,8 @@
 "use client"
 
+// Implements an accessible, customizable menubar with support for menu items, submenus, checkboxes, radio items, labels, separators, and shortcuts using Radix UI's menubar primitives and Lucide icons.
+
+
 import * as React from "react"
 import * as MenubarPrimitive from "@radix-ui/react-menubar"
 import { Check, ChevronRight, Circle } from "lucide-react"
