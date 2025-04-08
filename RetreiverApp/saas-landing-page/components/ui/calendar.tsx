@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a customizable, accessible calendar component with tailored styles, navigation icons, and configurable day rendering using react-day-picker.
+
+
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { DayPicker } from "react-day-picker"
