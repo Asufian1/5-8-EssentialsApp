@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a customizable, accessible dropdown menu with submenus, checkboxes, and radio items using Radix UI primitives and Lucide icons.
+
+
 import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronRight, Circle } from "lucide-react"
