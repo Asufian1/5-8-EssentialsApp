@@ -1,5 +1,8 @@
 "use client"
 
+// Implements an accessible, customizable carousel with navigation controls, supporting both horizontal and vertical orientations using embla-carousel-react.
+
+
 import * as React from "react"
 import useEmblaCarousel, {
   type UseEmblaCarouselType,
