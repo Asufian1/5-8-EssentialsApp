@@ -1,5 +1,8 @@
 import type { InventoryItem, TakeItemRequest, Transaction } from "./types"
 
+// Manages an inventory system using localStorage, including sample data initialization, CRUD operations, and transaction logging.
+
+
 // Local storage keys
 const INVENTORY_KEY = "inventory_items"
 const TRANSACTIONS_KEY = "inventory_transactions"
