@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a highly customizable, responsive sidebar suite with state management, mobile support, and composable subcomponents (triggers, headers, footers, menu items, etc.) using React context and UI primitives.
+
+
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { VariantProps, cva } from "class-variance-authority"
