@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a customizable, accessible modal dialog with animated transitions, an overlay, and a close button using Radix UI's dialog primitives.
+
+
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
