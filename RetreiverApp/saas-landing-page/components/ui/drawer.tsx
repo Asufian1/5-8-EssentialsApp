@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a customizable, accessible drawer component with scalable background and structured subcomponents (header, footer, title, description) using Vaul's drawer primitives.
+
+
 import * as React from "react"
 import { Drawer as DrawerPrimitive } from "vaul"
 
