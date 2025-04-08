@@ -1,5 +1,8 @@
 "use client"
 
+// Implements a customizable, accessible context menu system with support for submenus, checkbox and radio items, labels, separators, and keyboard shortcuts using Radix UI primitives and Lucide icons.
+
+
 import * as React from "react"
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
 import { Check, ChevronRight, Circle } from "lucide-react"
