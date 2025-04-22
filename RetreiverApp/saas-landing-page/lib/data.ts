@@ -500,6 +500,27 @@ export const updateOrder = (updatedOrder: Order): void => {
   }
 }
 
+// Add a helper function to validate unit values
+export const validateUnit = (unit: string | null | undefined): "item" | "kg" | "lb" | null => {
+  if (unit === "kg" || unit === "lb" || unit === "item") {
+    return unit
+  }
+  return "item" // Default to "item" if invalid
+}
+
+// Format quantity with unit
+export const formatQuantityWithUnit = (quantity: number, unit: string | null | undefined): string => {
+  const validUnit = validateUnit(unit)
+
+  if (!validUnit || validUnit === "item") {
+    return `${quantity} ${quantity === 1 ? "item" : "items"}`
+  }
+
+  // Format decimal places for weight units
+  const formattedQuantity = Number.isInteger(quantity) ? quantity : quantity.toFixed(2)
+  return `${formattedQuantity} ${validUnit}`
+}
+
 // Format time restriction for display
 export const formatTimeRestriction = (days: number, minutes: number): string => {
   if (days === 0 && minutes === 0) return "No restriction"
@@ -569,17 +590,6 @@ export const formatRemainingTime = (minutes: number): string => {
   }
 
   return result
-}
-
-// Format quantity with unit
-export const formatQuantityWithUnit = (quantity: number, unit: string | null | undefined): string => {
-  if (!unit || unit === "item") {
-    return `${quantity} ${quantity === 1 ? "item" : "items"}`
-  }
-
-  // Format decimal places for weight units
-  const formattedQuantity = Number.isInteger(quantity) ? quantity : quantity.toFixed(2)
-  return `${formattedQuantity} ${unit}`
 }
 
 // Check if student can take an item based on limits
@@ -679,6 +689,7 @@ export const takeItems = (
 
   items.forEach((item) => {
     const inventoryItem = inventory.find((i) => i.id === item.itemId)
+    const validUnit = inventoryItem ? inventoryItem.unit : "item"
 
     // Add transaction
     addTransaction({
@@ -689,7 +700,7 @@ export const takeItems = (
       quantity: item.quantity,
       user: item.user,
       timestamp: now,
-      unit: inventoryItem?.unit,
+      unit: validUnit,
     })
 
     // Add student checkout record
@@ -698,7 +709,7 @@ export const takeItems = (
       itemId: item.itemId,
       quantity: item.quantity,
       timestamp: now,
-      unit: inventoryItem?.unit,
+      unit: validUnit,
     })
   })
 

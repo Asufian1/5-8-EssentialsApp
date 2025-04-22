@@ -1,14 +1,12 @@
 "use client"
 
-//general layout of the Dashboard
-
 import type React from "react"
 
 import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { BarChart3, Home, LogOut, Package, ShoppingBasket, Store, User, UserCheck } from "lucide-react"
+import { BarChart3, Home, LogOut, Package, ShoppingBasket, Store, User, UserCheck, ClipboardList } from "lucide-react"
 
 export default function DashboardLayout({
   children,
@@ -143,6 +141,20 @@ export default function DashboardLayout({
                   </Button>
                 </Link>
 
+                <Link href="/dashboard/orders" passHref>
+                  <Button
+                    variant={pathname === "/dashboard/orders" ? "default" : "ghost"}
+                    className={`w-full justify-start ${
+                      pathname === "/dashboard/orders"
+                        ? "bg-primary text-black hover:bg-primary/90"
+                        : "hover:bg-gray-100"
+                    }`}
+                  >
+                    <ClipboardList className="mr-2 h-4 w-4" />
+                    Orders
+                  </Button>
+                </Link>
+
                 <Link href="/dashboard/analytics" passHref>
                   <Button
                     variant={pathname === "/dashboard/analytics" ? "default" : "ghost"}
@@ -175,4 +187,3 @@ export default function DashboardLayout({
     </div>
   )
 }
-

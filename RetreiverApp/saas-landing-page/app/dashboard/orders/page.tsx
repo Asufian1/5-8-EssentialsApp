@@ -36,7 +36,7 @@ export default function InventoryPage() {
     studentLimit: 1,
     limitDuration: 7,
     limitDurationMinutes: 0,
-    unit: "item" as "item" | "kg" | "lb" | null, // Type assertion here
+    unit: "item",
     isWeighed: false,
   })
 
@@ -90,12 +90,6 @@ export default function InventoryPage() {
       return
     }
 
-    // Ensure unit is one of the allowed values
-    let unit: "item" | "kg" | "lb" | null = "item"
-    if (newItem.isWeighed && (newItem.unit === "kg" || newItem.unit === "lb")) {
-      unit = newItem.unit
-    }
-
     addInventoryItem({
       id: Date.now().toString(),
       name: newItem.name,
@@ -104,7 +98,7 @@ export default function InventoryPage() {
       studentLimit: newItem.studentLimit,
       limitDuration: newItem.limitDuration,
       limitDurationMinutes: newItem.limitDurationMinutes,
-      unit: unit,
+      unit: newItem.isWeighed ? newItem.unit : "item",
       isWeighed: newItem.isWeighed,
     })
 
@@ -116,7 +110,7 @@ export default function InventoryPage() {
       studentLimit: 1,
       limitDuration: 7,
       limitDurationMinutes: 0,
-      unit: "item" as "item" | "kg" | "lb" | null,
+      unit: "item",
       isWeighed: false,
     })
 
@@ -311,22 +305,13 @@ export default function InventoryPage() {
                 {newItem.isWeighed && (
                   <div className="grid gap-2">
                     <Label htmlFor="unit">Unit of Measurement</Label>
-                    <Select
-                      value={newItem.unit}
-                      onValueChange={(value: string) => {
-                        // Validate the value before setting it
-                        if (value === "kg" || value === "lb" || value === "item") {
-                          setNewItem({ ...newItem, unit: value as "item" | "kg" | "lb" })
-                        }
-                      }}
-                    >
+                    <Select value={newItem.unit} onValueChange={(value) => setNewItem({ ...newItem, unit: value })}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select unit" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="kg">Kilograms (kg)</SelectItem>
                         <SelectItem value="lb">Pounds (lb)</SelectItem>
-                        <SelectItem value="item">Items</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
