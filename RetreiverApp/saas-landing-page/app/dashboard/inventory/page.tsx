@@ -1,52 +1,33 @@
 "use client"
 
+import type React from "react"
+
+import { Label } from "@/components/ui/label"
+
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Search, Minus } from "lucide-react"
+import { Search, ShoppingBasket, Minus, Plus, X, Mail, UserCheck, AlertTriangle, Scale } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { InventoryItem } from "@/lib/types"
-import { addInventoryItem, getInventoryItems, updateInventoryItem } from "@/lib/data"
+import { getInventoryItems, takeItems, canStudentTakeItem, formatQuantityWithUnit } from "@/lib/data"
 
-export default function InventoryPage() {
+export default function CheckoutPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [userType, setUserType] = useState("")
-
-  // New item form state
-  const [newItem, setNewItem] = useState({
-    name: "",
-    category: "essentials",
-    quantity: 0,
-  })
-
-  // Add quantity form state
-  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
-  const [quantityToAdd, setQuantityToAdd] = useState(0)
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-
-  // Remove quantity form state
-  const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false)
-  const [quantityToRemove, setQuantityToRemove] = useState(0)
+  const [cart, setCart] = useState<{ item: InventoryItem; quantity: number }[]>([])
+  const [studentId, setStudentId] = useState("")
+  const [showEmailAlert, setShowEmailAlert] = useState(false)
+  const [checkoutComplete, setCheckoutComplete] = useState(false)
+  const [itemLimits, setItemLimits] = useState<
+    Record<string, { allowed: boolean; reason?: string; availableQuantity?: number }>
+  >({})
 
   useEffect(() => {
-    const storedUserType = localStorage.getItem("userType")
-    setUserType(storedUserType || "")
-
     // Load inventory data
     loadInventory()
   }, [])
@@ -66,92 +47,169 @@ export default function InventoryPage() {
     setFilteredItems(filtered)
   }, [items, searchQuery, categoryFilter])
 
+  useEffect(() => {
+    // Check limits for each item when student ID changes
+    if (studentId) {
+      const limits: Record<string, { allowed: boolean; reason?: string; availableQuantity?: number }> = {}
+
+      items.forEach((item) => {
+        limits[item.id] = canStudentTakeItem(studentId, item.id, 1)
+      })
+
+      setItemLimits(limits)
+    } else {
+      setItemLimits({})
+    }
+  }, [items, studentId])
+
   const loadInventory = () => {
     const inventoryItems = getInventoryItems()
     setItems(inventoryItems)
     setFilteredItems(inventoryItems)
   }
 
-  const handleAddNewItem = () => {
-    if (!newItem.name || newItem.quantity <= 0) {
-      alert("Please enter a valid item name and quantity")
+  const addToCart = (item: InventoryItem) => {
+    if (!studentId.trim()) {
+      alert("Please enter a student ID first")
       return
     }
 
-    addInventoryItem({
-      id: Date.now().toString(),
-      name: newItem.name,
-      category: newItem.category,
-      quantity: newItem.quantity,
+    // Check if student can take this item
+    const checkResult = canStudentTakeItem(studentId, item.id, 1)
+    if (!checkResult.allowed) {
+      alert(checkResult.reason || "This student cannot take this item at this time")
+      return
+    }
+
+    // Check if item is already in cart
+    const existingItem = cart.find((cartItem) => cartItem.item.id === item.id)
+
+    if (existingItem) {
+      // Check if adding one more would exceed the limit
+      const newQuantity = item.isWeighed
+        ? existingItem.quantity + 0.1 // Add 0.1 for weighed items
+        : existingItem.quantity + 1 // Add 1 for regular items
+
+      const limitCheck = canStudentTakeItem(studentId, item.id, newQuantity)
+
+      if (!limitCheck.allowed) {
+        alert(
+          limitCheck.reason || `Student can only take up to ${formatQuantityWithUnit(item.studentLimit, item.unit)}`,
+        )
+        return
+      }
+
+      // If item exists and within limits, update quantity
+      const updatedCart = cart.map((cartItem) =>
+        cartItem.item.id === item.id ? { ...cartItem, quantity: newQuantity } : cartItem,
+      )
+      setCart(updatedCart)
+    } else {
+      // If item doesn't exist, add to cart with quantity 1 or 0.1 for weighed items
+      const initialQuantity = item.isWeighed ? 0.1 : 1
+      setCart([...cart, { item, quantity: initialQuantity }])
+    }
+  }
+
+  const removeFromCart = (itemId: string) => {
+    setCart(cart.filter((cartItem) => cartItem.item.id !== itemId))
+  }
+
+  const updateCartItemQuantity = (itemId: string, quantity: number) => {
+    if (quantity <= 0) {
+      removeFromCart(itemId)
+      return
+    }
+
+    // Check if quantity is available in inventory
+    const inventoryItem = items.find((item) => item.id === itemId)
+    if (!inventoryItem) return
+
+    // Check if quantity exceeds student limit
+    const limitCheck = canStudentTakeItem(studentId, itemId, quantity)
+    if (!limitCheck.allowed) {
+      alert(
+        limitCheck.reason ||
+          `Student can only take up to ${formatQuantityWithUnit(inventoryItem.studentLimit, inventoryItem.unit)}`,
+      )
+      return
+    }
+
+    if (inventoryItem && quantity > inventoryItem.quantity) {
+      alert(`Only ${formatQuantityWithUnit(inventoryItem.quantity, inventoryItem.unit)} available in stock`)
+      return
+    }
+
+    const updatedCart = cart.map((cartItem) => (cartItem.item.id === itemId ? { ...cartItem, quantity } : cartItem))
+    setCart(updatedCart)
+  }
+
+  // Function to simulate sending an email notification
+  const sendEmailNotification = (studentId: string, cartItems: { item: InventoryItem; quantity: number }[]) => {
+    console.log("Sending email notification to asufian1@umbc.edu")
+    console.log(`Student ID: ${studentId}`)
+    console.log("Items:")
+    cartItems.forEach((cartItem) => {
+      console.log(
+        `- ${cartItem.item.name} (${cartItem.item.category}): ${formatQuantityWithUnit(cartItem.quantity, cartItem.item.unit)}`,
+      )
     })
 
-    // Reset form and reload inventory
-    setNewItem({
-      name: "",
-      category: "essentials",
-      quantity: 0,
-    })
-
-    loadInventory()
+    // In a real implementation, this would use an email API
+    // For now, we'll just show an alert to simulate the email being sent
+    setShowEmailAlert(true)
+    setTimeout(() => {
+      setShowEmailAlert(false)
+    }, 5000)
   }
 
-  const handleAddQuantity = () => {
-    if (!selectedItem || quantityToAdd <= 0) {
-      alert("Please select a valid item and quantity")
+  const handleCheckout = () => {
+    if (cart.length === 0) {
+      alert("Cart is empty")
       return
     }
 
-    const updatedItem = {
-      ...selectedItem,
-      quantity: selectedItem.quantity + quantityToAdd,
-    }
-
-    updateInventoryItem(updatedItem)
-
-    // Reset form and reload inventory
-    setSelectedItem(null)
-    setQuantityToAdd(0)
-    setIsAddDialogOpen(false)
-
-    loadInventory()
-  }
-
-  const handleRemoveQuantity = () => {
-    if (!selectedItem || quantityToRemove <= 0) {
-      alert("Please select a valid item and quantity")
+    if (!studentId.trim()) {
+      alert("Please enter a student ID")
       return
     }
 
-    if (quantityToRemove > selectedItem.quantity) {
-      alert(`Cannot remove more than the available quantity (${selectedItem.quantity})`)
+    // Process the checkout
+    const result = takeItems(
+      cart.map((cartItem) => ({
+        itemId: cartItem.item.id,
+        itemName: cartItem.item.name,
+        quantity: cartItem.quantity,
+        user: studentId,
+        unit: cartItem.item.unit,
+      })),
+    )
+
+    if (!result.success) {
+      // Handle errors
+      if (result.errors) {
+        const errorMessages = Object.values(result.errors).join("\n")
+        alert(`Checkout failed:\n${errorMessages}`)
+      } else {
+        alert("Checkout failed. Please try again.")
+      }
       return
     }
 
-    const updatedItem = {
-      ...selectedItem,
-      quantity: selectedItem.quantity - quantityToRemove,
-    }
+    // Send email notification
+    sendEmailNotification(studentId, cart)
 
-    updateInventoryItem(updatedItem)
+    // Show checkout complete message
+    setCheckoutComplete(true)
 
-    // Reset form and reload inventory
-    setSelectedItem(null)
-    setQuantityToRemove(0)
-    setIsRemoveDialogOpen(false)
-
+    // Reset cart and reload inventory
+    setCart([])
     loadInventory()
-  }
 
-  const openAddQuantityDialog = (item: InventoryItem) => {
-    setSelectedItem(item)
-    setQuantityToAdd(0)
-    setIsAddDialogOpen(true)
-  }
-
-  const openRemoveQuantityDialog = (item: InventoryItem) => {
-    setSelectedItem(item)
-    setQuantityToRemove(0)
-    setIsRemoveDialogOpen(true)
+    // Reset checkout complete message after a delay
+    setTimeout(() => {
+      setCheckoutComplete(false)
+    }, 5000)
   }
 
   // Function to get color based on category
@@ -174,239 +232,273 @@ export default function InventoryPage() {
     }
   }
 
+  const handleStudentIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setStudentId(e.target.value)
+    // Clear cart when student ID changes
+    if (cart.length > 0) {
+      setCart([])
+    }
+  }
+
+  const formatTimeRestriction = (limitDuration: number, limitDurationMinutes: number) => {
+    if (limitDuration > 0) {
+      return `${limitDuration} days`
+    } else if (limitDurationMinutes > 0) {
+      return `${limitDurationMinutes} minutes`
+    } else {
+      return "No time restriction"
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Hero Banner */}
       <div className="relative rounded-lg overflow-hidden h-40 bg-secondary">
         <div className="absolute inset-0 flex items-center">
           <div className="px-6 md:px-10">
-            <h1 className="text-2xl md:text-3xl font-bold text-white">Inventory Management</h1>
-            <p className="text-lg text-primary mt-2">Manage and track all food items in the store</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">Student Checkout</h1>
+            <p className="text-lg text-primary mt-2">Help students check out items in person</p>
           </div>
         </div>
       </div>
 
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold">Inventory Items</h2>
-          <p className="text-muted-foreground">View and manage all items in the food store</p>
-        </div>
+      {/* Email notification alert */}
+      {showEmailAlert && (
+        <Alert className="bg-green-50 border-green-200">
+          <Mail className="h-4 w-4 text-green-600" />
+          <AlertTitle>Order Notification Sent</AlertTitle>
+          <AlertDescription>Order details for student {studentId} have been sent to asufian1@umbc.edu</AlertDescription>
+        </Alert>
+      )}
 
-        {userType === "staff" && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-black hover:bg-primary/90">
-                <Plus className="mr-2 h-4 w-4" />
-                Add New Item
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add New Inventory Item</DialogTitle>
-                <DialogDescription>Enter the details of the new item to add to inventory</DialogDescription>
-              </DialogHeader>
+      {/* Checkout complete alert */}
+      {checkoutComplete && (
+        <Alert className="bg-green-50 border-green-200">
+          <UserCheck className="h-4 w-4 text-green-600" />
+          <AlertTitle>Checkout Complete</AlertTitle>
+          <AlertDescription>Student {studentId} has successfully checked out items</AlertDescription>
+        </Alert>
+      )}
 
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Item Name</Label>
-                  <Input
-                    id="name"
-                    value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    placeholder="Enter item name"
-                  />
-                </div>
+      <div className="flex flex-col md:flex-row gap-6">
+        {/* Filters and Cart */}
+        <div className="w-full md:w-64 space-y-4">
+          {/* Student ID Input */}
+          <Card className="border-t-4 border-primary">
+            <CardHeader>
+              <CardTitle>Student Information</CardTitle>
+              <CardDescription>Enter the student's ID</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="student-id">Student ID</Label>
+                <Input
+                  id="student-id"
+                  placeholder="Enter student ID"
+                  value={studentId}
+                  onChange={handleStudentIdChange}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={newItem.category}
-                    onValueChange={(value) => setNewItem({ ...newItem, category: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="essentials">Essentials</SelectItem>
-                      <SelectItem value="grains">Grains</SelectItem>
-                      <SelectItem value="canned">Canned Goods</SelectItem>
-                      <SelectItem value="produce">Produce</SelectItem>
-                      <SelectItem value="dairy">Dairy</SelectItem>
-                      <SelectItem value="south-asian">South Asian</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="quantity">Initial Quantity</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    min="1"
-                    value={newItem.quantity || ""}
-                    onChange={(e) => setNewItem({ ...newItem, quantity: Number.parseInt(e.target.value) || 0 })}
-                    placeholder="Enter quantity"
-                  />
-                </div>
+          {/* Filters */}
+          <Card className="border-t-4 border-primary">
+            <CardHeader>
+              <CardTitle>Filter Items</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search items..."
+                  className="pl-8"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
 
-              <DialogFooter>
-                <Button onClick={handleAddNewItem} className="bg-primary text-black hover:bg-primary/90">
-                  Add Item
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-      </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Category</p>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    <SelectItem value="essentials">Essentials</SelectItem>
+                    <SelectItem value="grains">Grains</SelectItem>
+                    <SelectItem value="canned">Canned Goods</SelectItem>
+                    <SelectItem value="produce">Produce</SelectItem>
+                    <SelectItem value="dairy">Dairy</SelectItem>
+                    <SelectItem value="south-asian">South Asian</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
 
-      <Card className="border-t-4 border-primary">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search items..."
-                className="pl-8"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
+          {/* Shopping Cart */}
+          <Card className="border-t-4 border-primary sticky top-4">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <ShoppingBasket className="mr-2 h-5 w-5 text-primary" />
+                Student's Cart
+              </CardTitle>
+              <CardDescription>
+                {cart.length} {cart.length === 1 ? "item" : "items"} selected
+              </CardDescription>
+            </CardHeader>
 
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Filter by category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                <SelectItem value="essentials">Essentials</SelectItem>
-                <SelectItem value="grains">Grains</SelectItem>
-                <SelectItem value="canned">Canned Goods</SelectItem>
-                <SelectItem value="produce">Produce</SelectItem>
-                <SelectItem value="dairy">Dairy</SelectItem>
-                <SelectItem value="south-asian">South Asian</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Quantity</TableHead>
-                {userType === "staff" && <TableHead className="text-right">Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredItems.length > 0 ? (
-                filteredItems.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className={`h-10 w-10 rounded-full ${getColorForCategory(item.category)} flex items-center justify-center`}
-                        >
-                          <span className="text-xs font-bold uppercase">{item.category.charAt(0)}</span>
-                        </div>
-                        <span className="font-medium">{item.name}</span>
+            <CardContent>
+              {cart.length > 0 ? (
+                <div className="space-y-4 max-h-80 overflow-auto pr-2">
+                  {cart.map((cartItem) => (
+                    <div key={cartItem.item.id} className="flex items-center justify-between border-b pb-2">
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">{cartItem.item.name}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{cartItem.item.category}</p>
                       </div>
-                    </TableCell>
-                    <TableCell className="capitalize">{item.category}</TableCell>
-                    <TableCell className="text-right">
-                      {item.quantity}
-                      {item.quantity < 10 && <span className="ml-2 text-xs text-red-500 font-medium">Low Stock</span>}
-                    </TableCell>
-                    {userType === "staff" && (
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => openAddQuantityDialog(item)}>
-                            <Plus className="h-3 w-3 mr-1" /> Add
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => openRemoveQuantityDialog(item)}>
-                            <Minus className="h-3 w-3 mr-1" /> Remove
-                          </Button>
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6 rounded-full"
+                          onClick={() => {
+                            const decrementAmount = cartItem.item.isWeighed ? 0.1 : 1
+                            updateCartItemQuantity(cartItem.item.id, cartItem.quantity - decrementAmount)
+                          }}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-12 text-center text-sm">
+                          {cartItem.item.isWeighed ? cartItem.quantity.toFixed(1) : cartItem.quantity}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6 rounded-full"
+                          onClick={() => {
+                            const incrementAmount = cartItem.item.isWeighed ? 0.1 : 1
+                            updateCartItemQuantity(cartItem.item.id, cartItem.quantity + incrementAmount)
+                          }}
+                          disabled={
+                            cartItem.quantity >= cartItem.item.quantity ||
+                            cartItem.quantity >= cartItem.item.studentLimit
+                          }
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => removeFromCart(cartItem.item.id)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
-                <TableRow>
-                  <TableCell colSpan={userType === "staff" ? 4 : 3} className="text-center py-4">
-                    No items found
-                  </TableCell>
-                </TableRow>
+                <div className="text-center py-8">
+                  <ShoppingBasket className="mx-auto h-12 w-12 text-muted-foreground opacity-50" />
+                  <p className="mt-2 text-muted-foreground">Cart is empty</p>
+                  <p className="text-sm text-muted-foreground">Add items from the available items list</p>
+                </div>
               )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </CardContent>
 
-      {/* Add Quantity Dialog */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Stock</DialogTitle>
-            <DialogDescription>Add more quantity to {selectedItem?.name}</DialogDescription>
-          </DialogHeader>
+            <CardFooter>
+              <Button
+                className="w-full bg-primary text-black hover:bg-primary/90"
+                onClick={handleCheckout}
+                disabled={cart.length === 0 || !studentId.trim()}
+              >
+                Complete Checkout
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
 
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="add-quantity">Quantity to Add</Label>
-              <Input
-                id="add-quantity"
-                type="number"
-                min="1"
-                value={quantityToAdd || ""}
-                onChange={(e) => setQuantityToAdd(Number.parseInt(e.target.value) || 0)}
-                placeholder="Enter quantity"
-              />
+        {/* Items Grid */}
+        <div className="flex-1">
+          <h2 className="text-2xl font-bold mb-4">Available Items</h2>
+
+          {filteredItems.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredItems.map((item) => {
+                const itemLimit = studentId ? itemLimits[item.id] : null
+                const isRestricted = itemLimit && !itemLimit.allowed
+
+                return (
+                  <Card
+                    key={item.id}
+                    className={`overflow-hidden hover:shadow-md transition-shadow ${isRestricted ? "border-amber-300" : ""}`}
+                  >
+                    <div
+                      className={`relative h-40 ${getColorForCategory(item.category)} flex items-center justify-center`}
+                    >
+                      <h3 className="font-bold text-xl">{item.name}</h3>
+                      <div className="absolute top-2 right-2 bg-primary text-black text-xs font-bold px-2 py-1 rounded-full">
+                        {item.isWeighed ? `${item.quantity.toFixed(2)} ${item.unit}` : `${item.quantity} in stock`}
+                      </div>
+                      {item.studentLimit > 0 && (
+                        <div className="absolute top-2 left-2 bg-white/80 text-black text-xs font-bold px-2 py-1 rounded-full">
+                          Limit: {item.isWeighed ? `${item.studentLimit.toFixed(2)} ${item.unit}` : item.studentLimit}{" "}
+                          per student
+                        </div>
+                      )}
+                      {item.isWeighed && (
+                        <div className="absolute bottom-2 left-2 bg-white/80 text-black text-xs font-bold px-2 py-1 rounded-full flex items-center">
+                          <Scale className="h-3 w-3 mr-1" />
+                          Weighed Item
+                        </div>
+                      )}
+                    </div>
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground capitalize">{item.category}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Time restriction: {formatTimeRestriction(item.limitDuration, item.limitDurationMinutes)}
+                      </p>
+
+                      {isRestricted && (
+                        <div className="mt-2 flex items-center text-amber-600 text-sm">
+                          <AlertTriangle className="h-4 w-4 mr-1" />
+                          <span>{itemLimit.reason}</span>
+                        </div>
+                      )}
+                    </CardContent>
+                    <CardFooter className="p-4 pt-0 flex justify-between">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => addToCart(item)}
+                        disabled={item.quantity === 0 || isRestricted || !studentId}
+                      >
+                        {!studentId
+                          ? "Enter Student ID"
+                          : item.quantity === 0
+                            ? "Out of Stock"
+                            : isRestricted
+                              ? "Restricted"
+                              : "Add to Cart"}
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                )
+              })}
             </div>
-          </div>
-
-          <DialogFooter>
-            <Button onClick={handleAddQuantity} className="bg-primary text-black hover:bg-primary/90">
-              Add Stock
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Remove Quantity Dialog */}
-      <Dialog open={isRemoveDialogOpen} onOpenChange={setIsRemoveDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Stock</DialogTitle>
-            <DialogDescription>Remove quantity from {selectedItem?.name}</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="remove-quantity">Quantity to Remove</Label>
-              <Input
-                id="remove-quantity"
-                type="number"
-                min="1"
-                value={quantityToRemove || ""}
-                onChange={(e) => setQuantityToRemove(Number.parseInt(e.target.value) || 0)}
-                placeholder="Enter quantity"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button onClick={handleRemoveQuantity} className="bg-primary text-black hover:bg-primary/90">
-              Remove Stock
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ) : (
+            <Card className="p-8 text-center">
+              <p className="text-muted-foreground">No items found matching your criteria</p>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
-
