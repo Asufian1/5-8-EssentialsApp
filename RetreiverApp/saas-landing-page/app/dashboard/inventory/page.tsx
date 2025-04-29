@@ -21,6 +21,32 @@ import { Switch } from "@/components/ui/switch"
 import type { InventoryItem } from "@/lib/types"
 import { addInventoryItem, getInventoryItems, updateInventoryItem, formatTimeRestriction } from "@/lib/data"
 
+// Add this at the beginning of the file, right after the imports
+const getCategories = () => {
+  if (typeof window === "undefined") return []
+
+  const storedCategories = localStorage.getItem("inventory_categories")
+  if (storedCategories) {
+    try {
+      return JSON.parse(storedCategories)
+    } catch (error) {
+      console.error("Error parsing categories:", error)
+      return []
+    }
+  }
+
+  // Default categories if none are found
+  return [
+    { id: "essentials", name: "Essentials", description: "Basic food items" },
+    { id: "grains", name: "Grains", description: "Rice, pasta, and other grains" },
+    { id: "canned", name: "Canned Goods", description: "Canned foods and preserved items" },
+    { id: "produce", name: "Produce", description: "Fresh fruits and vegetables" },
+    { id: "dairy", name: "Dairy", description: "Milk, cheese, and other dairy products" },
+    { id: "south-asian", name: "South Asian", description: "South Asian food items" },
+    { id: "other", name: "Other", description: "Miscellaneous items" },
+  ]
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([])
@@ -36,7 +62,7 @@ export default function InventoryPage() {
     studentLimit: 1,
     limitDuration: 7,
     limitDurationMinutes: 0,
-    unit: "item" as "item" | "kg" | "lb" | null, // Type assertion here
+    unit: "item" as "item" | "kg" | "lb" | null,
     isWeighed: false,
   })
 
@@ -285,13 +311,11 @@ export default function InventoryPage() {
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="essentials">Essentials</SelectItem>
-                      <SelectItem value="grains">Grains</SelectItem>
-                      <SelectItem value="canned">Canned Goods</SelectItem>
-                      <SelectItem value="produce">Produce</SelectItem>
-                      <SelectItem value="dairy">Dairy</SelectItem>
-                      <SelectItem value="south-asian">South Asian</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
+                      {getCategories().map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -422,13 +446,11 @@ export default function InventoryPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
-                <SelectItem value="essentials">Essentials</SelectItem>
-                <SelectItem value="grains">Grains</SelectItem>
-                <SelectItem value="canned">Canned Goods</SelectItem>
-                <SelectItem value="produce">Produce</SelectItem>
-                <SelectItem value="dairy">Dairy</SelectItem>
-                <SelectItem value="south-asian">South Asian</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
+                {getCategories().map((category) => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

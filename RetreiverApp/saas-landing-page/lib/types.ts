@@ -51,4 +51,5 @@ export interface Order {
   createdAt: string
   fulfilledAt?: string
   notified: boolean
+  error?: string
 }

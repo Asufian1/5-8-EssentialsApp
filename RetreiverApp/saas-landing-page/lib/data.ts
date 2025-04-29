@@ -674,47 +674,10 @@ export const takeItems = (
     return { success: false, errors }
   }
 
-  // Update inventory quantities
-  items.forEach((item) => {
-    const inventoryItem = inventory.find((i) => i.id === item.itemId)
-    if (inventoryItem) {
-      inventoryItem.quantity -= item.quantity
-    }
-  })
-
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory))
-
-  // Add transaction records and student checkouts
-  const now = new Date().toISOString()
-
-  items.forEach((item) => {
-    const inventoryItem = inventory.find((i) => i.id === item.itemId)
-    const validUnit = inventoryItem ? inventoryItem.unit : "item"
-
-    // Add transaction
-    addTransaction({
-      id: Date.now().toString(),
-      type: "out",
-      itemId: item.itemId,
-      itemName: item.itemName,
-      quantity: item.quantity,
-      user: item.user,
-      timestamp: now,
-      unit: validUnit,
-    })
-
-    // Add student checkout record
-    addStudentCheckout({
-      studentId: item.user,
-      itemId: item.itemId,
-      quantity: item.quantity,
-      timestamp: now,
-      unit: validUnit,
-    })
-  })
-
   // Create a new order
   const orderId = `order-${Date.now()}`
+  const now = new Date().toISOString()
+
   const newOrder: Order = {
     id: orderId,
     studentId: items[0].user,
@@ -749,9 +712,65 @@ export const fulfillOrder = (orderId: string): { success: boolean; order?: Order
 
   const order = orders[orderIndex]
 
+  // Only reduce inventory when fulfilling the order
+  const inventory = getInventoryItems()
+
+  // Check if we have enough inventory for all items
+  for (const item of order.items) {
+    const inventoryItem = inventory.find((i) => i.id === item.itemId)
+    if (!inventoryItem || inventoryItem.quantity < item.quantity) {
+      return {
+        success: false,
+        order: {
+          ...order,
+          error: `Not enough ${item.itemName} in inventory`,
+        },
+      }
+    }
+  }
+
+  // Update inventory quantities
+  order.items.forEach((item) => {
+    const inventoryItem = inventory.find((i) => i.id === item.itemId)
+    if (inventoryItem) {
+      inventoryItem.quantity -= item.quantity
+    }
+  })
+
+  localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory))
+
+  // Add transaction records and student checkouts
+  const now = new Date().toISOString()
+
+  order.items.forEach((item) => {
+    const inventoryItem = inventory.find((i) => i.id === item.itemId)
+    const validUnit = inventoryItem ? inventoryItem.unit : "item"
+
+    // Add transaction
+    addTransaction({
+      id: Date.now().toString(),
+      type: "out",
+      itemId: item.itemId,
+      itemName: item.itemName,
+      quantity: item.quantity,
+      user: order.studentId,
+      timestamp: now,
+      unit: validUnit,
+    })
+
+    // Add student checkout record
+    addStudentCheckout({
+      studentId: order.studentId,
+      itemId: item.itemId,
+      quantity: item.quantity,
+      timestamp: now,
+      unit: validUnit,
+    })
+  })
+
   // Update order status
   order.status = "fulfilled"
-  order.fulfilledAt = new Date().toISOString()
+  order.fulfilledAt = now
   order.notified = true
 
   // Save updated order
@@ -772,18 +791,6 @@ export const cancelOrder = (orderId: string): { success: boolean } => {
 
   const order = orders[orderIndex]
 
-  // Return items to inventory
-  const inventory = getInventoryItems()
-
-  order.items.forEach((item) => {
-    const inventoryItem = inventory.find((i) => i.id === item.itemId)
-    if (inventoryItem) {
-      inventoryItem.quantity += item.quantity
-    }
-  })
-
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify(inventory))
-
   // Update order status
   order.status = "cancelled"
 
@@ -792,4 +799,136 @@ export const cancelOrder = (orderId: string): { success: boolean } => {
   localStorage.setItem(ORDERS_KEY, JSON.stringify(orders))
 
   return { success: true }
+}
+
+// Get product analytics data
+export const getProductAnalytics = () => {
+  const transactions = getTransactions()
+  const inventory = getInventoryItems()
+
+  // Calculate sales data for each product
+  const productData = inventory.map((item) => {
+    // Get all transactions for this item
+    const itemTransactions = transactions.filter((t) => t.itemId === item.id)
+
+    // Calculate total sold
+    const totalSold = itemTransactions.filter((t) => t.type === "out").reduce((sum, t) => sum + t.quantity, 0)
+
+    // Calculate total restocked
+    const totalRestocked = itemTransactions.filter((t) => t.type === "in").reduce((sum, t) => sum + t.quantity, 0)
+
+    // Calculate popularity score (total sold / days since first transaction)
+    const firstTransaction =
+      itemTransactions.length > 0
+        ? new Date(
+            itemTransactions.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[0]
+              .timestamp,
+          )
+        : new Date()
+
+    const daysSinceFirst = Math.max(1, (new Date().getTime() - firstTransaction.getTime()) / (1000 * 60 * 60 * 24))
+    const popularityScore = totalSold / daysSinceFirst
+
+    return {
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      currentStock: item.quantity,
+      totalSold,
+      totalRestocked,
+      popularityScore,
+      turnoverRate: totalSold / (totalRestocked || 1), // Avoid division by zero
+    }
+  })
+
+  return productData
+}
+
+// Get category analytics data
+export const getCategoryAnalytics = (category: string) => {
+  const transactions = getTransactions()
+  const inventory = getInventoryItems()
+
+  // Filter items by category
+  const categoryItems = inventory.filter((item) => item.category === category)
+
+  // Get analytics for each item in the category
+  return categoryItems
+    .map((item) => {
+      const itemTransactions = transactions.filter((t) => t.itemId === item.id && t.type === "out")
+      const totalSold = itemTransactions.reduce((sum, t) => sum + t.quantity, 0)
+
+      return {
+        id: item.id,
+        name: item.name,
+        totalSold,
+        currentStock: item.quantity,
+      }
+    })
+    .sort((a, b) => b.totalSold - a.totalSold) // Sort by most sold
+}
+
+// Add this new function to check if a student has recently placed an order
+export const hasRecentOrder = (studentId: string): { hasRecent: boolean; timeRemaining?: number } => {
+  const orders = getOrders()
+  const studentOrders = orders.filter((order) => order.studentId === studentId)
+
+  if (studentOrders.length === 0) {
+    return { hasRecent: false }
+  }
+
+  // Find the most recent order
+  const latestOrder = studentOrders.reduce((latest, current) => {
+    return new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest
+  }, studentOrders[0])
+
+  // Check if the order was placed within the last 30 minutes (1800000 ms)
+  const orderTime = new Date(latestOrder.createdAt).getTime()
+  const currentTime = Date.now()
+  const timeDifference = currentTime - orderTime
+  const cooldownPeriod = 30 * 60 * 1000 // 30 minutes in milliseconds
+
+  if (timeDifference < cooldownPeriod) {
+    const timeRemaining = Math.ceil((cooldownPeriod - timeDifference) / 60000) // Convert to minutes
+    return { hasRecent: true, timeRemaining }
+  }
+
+  return { hasRecent: false }
+}
+
+// Update the createOrder function to check for recent orders
+export const createOrder = (
+  studentName: string,
+  items: {
+    itemId: string
+    itemName: string
+    quantity: number
+    category: string
+    unit?: "item" | "kg" | "lb" | null
+  }[],
+): { success: boolean; orderId?: string; error?: string } => {
+  // Check if student has placed an order recently
+  const recentOrderCheck = hasRecentOrder(studentName)
+  if (recentOrderCheck.hasRecent) {
+    return {
+      success: false,
+      error: `You've already placed an order recently. Please wait ${recentOrderCheck.timeRemaining} minutes before placing another order.`,
+    }
+  }
+
+  const orderId = `order-${Date.now()}`
+  const now = new Date().toISOString()
+
+  const newOrder: Order = {
+    id: orderId,
+    studentId: studentName,
+    items: items,
+    status: "pending",
+    createdAt: now,
+    notified: false,
+  }
+
+  addOrder(newOrder)
+
+  return { success: true, orderId }
 }

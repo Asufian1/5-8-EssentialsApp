@@ -1,19 +1,18 @@
 "use client"
-//handles the logging in from user or admin
+
 import type React from "react"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useRouter } from "next/navigation"
-import { Store } from "lucide-react"
+import { Store, ArrowLeft } from "lucide-react"
+import Link from "next/link"
 
 export default function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
-  const [userType, setUserType] = useState("student")
   const [error, setError] = useState("")
   const router = useRouter()
 
@@ -26,16 +25,11 @@ export default function LoginPage() {
       return
     }
 
-    // Dummy authentication
-    if (username === "admin" && password === "admin123" && userType === "staff") {
+    // Admin authentication only
+    if (username === "admin" && password === "admin123") {
       // Store auth state in localStorage
       localStorage.setItem("isAuthenticated", "true")
       localStorage.setItem("userType", "staff")
-      localStorage.setItem("username", username)
-      router.push("/dashboard")
-    } else if (username === "student" && password === "student123" && userType === "student") {
-      localStorage.setItem("isAuthenticated", "true")
-      localStorage.setItem("userType", "student")
       localStorage.setItem("username", username)
       router.push("/dashboard")
     } else {
@@ -45,12 +39,22 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Back to Home Link */}
+      <div className="absolute top-4 left-4 z-10">
+        <Link href="/">
+          <Button variant="ghost" size="sm" className="flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to Home</span>
+          </Button>
+        </Link>
+      </div>
+
       {/* Hero Section */}
-      <div className="relative h-64 md:h-96 w-full bg-secondary">
+      <div className="relative h-48 md:h-64 w-full bg-secondary">
         <div className="absolute inset-0 flex items-center justify-center flex-col text-white p-4">
           <div className="bg-black/50 p-6 rounded-lg text-center">
-            <h1 className="text-3xl md:text-5xl font-bold text-primary mb-2">Retriever&apos;s Essentials</h1>
-            <p className="text-xl md:text-2xl">UMBC&apos;s Free Campus Food Store</p>
+            <h1 className="text-2xl md:text-4xl font-bold text-primary mb-2">Admin Login</h1>
+            <p className="text-lg md:text-xl">Retriever&apos;s Essentials Management</p>
           </div>
         </div>
       </div>
@@ -62,8 +66,8 @@ export default function LoginPage() {
             <div className="flex justify-center">
               <Store className="h-12 w-12 text-primary" />
             </div>
-            <h2 className="mt-4 text-2xl font-bold text-secondary">Sign In</h2>
-            <p className="mt-2 text-gray-600">Access the inventory system</p>
+            <h2 className="mt-4 text-2xl font-bold text-secondary">Staff Sign In</h2>
+            <p className="mt-2 text-gray-600">Access the inventory management system</p>
           </div>
 
           {error && <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded">{error}</div>}
@@ -80,7 +84,7 @@ export default function LoginPage() {
                   placeholder="Enter your username"
                   className="border-gray-300"
                 />
-                <p className="text-xs text-muted-foreground mt-1">Staff: admin / Student: student</p>
+                <p className="text-xs text-muted-foreground mt-1">Staff: admin</p>
               </div>
 
               <div>
@@ -93,23 +97,8 @@ export default function LoginPage() {
                   placeholder="Enter your password"
                   className="border-gray-300"
                 />
-                <p className="text-xs text-muted-foreground mt-1">Staff: admin123 / Student: student123</p>
+                <p className="text-xs text-muted-foreground mt-1">Staff: admin123</p>
               </div>
-
-              <RadioGroup value={userType} onValueChange={setUserType} className="flex space-x-4">
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="student" id="student" />
-                  <Label htmlFor="student" className="text-gray-800 font-medium">
-                    Student
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="staff" id="staff" />
-                  <Label htmlFor="staff" className="text-gray-800 font-medium">
-                    Staff
-                  </Label>
-                </div>
-              </RadioGroup>
             </div>
 
             <Button type="submit" className="w-full bg-primary text-black hover:bg-primary/90">
@@ -132,4 +121,3 @@ export default function LoginPage() {
     </div>
   )
 }
-

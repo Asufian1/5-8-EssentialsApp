@@ -1,9 +1,6 @@
 // components/ui/chart.tsx
 import type React from "react"
 
-// Provides reusable BarChart and LineChart React components for visualizing data with customizable options.
-
-
 interface BarChartProps {
   data: { name: string; value: number }[]
   index: string
@@ -74,4 +71,3 @@ export const LineChart: React.FC<LineChartProps> = ({
     </div>
   )
 }
-

@@ -5,34 +5,27 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, ShoppingBasket, Minus, Plus, X, Mail, AlertTriangle, Clock } from "lucide-react"
+import { Search, ShoppingBasket, Minus, Plus, X, Clock } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import type { InventoryItem, Order } from "@/lib/types"
-import { getInventoryItems, takeItems, canStudentTakeItem, getOrders, formatTimeRestriction } from "@/lib/data"
+import type { InventoryItem } from "@/lib/types"
+import { getInventoryItems, formatTimeRestriction } from "@/lib/data"
+import { useRouter } from "next/navigation"
 
 export default function TakeItemsPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [cart, setCart] = useState<{ item: InventoryItem; quantity: number }[]>([])
-  const [username, setUsername] = useState("")
-  const [showEmailAlert, setShowEmailAlert] = useState(false)
-  const [itemLimits, setItemLimits] = useState<
-    Record<string, { allowed: boolean; reason?: string; availableQuantity?: number }>
-  >({})
-  const [pendingOrders, setPendingOrders] = useState<Order[]>([])
+  const [cart, setCart] = useState<
+    { id: string; name: string; quantity: number; category: string; unit?: string | null; studentLimit: number }[]
+  >([])
+  const [studentName, setStudentName] = useState("")
   const [showOrderPlacedAlert, setShowOrderPlacedAlert] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
-    const storedUsername = localStorage.getItem("username")
-    setUsername(storedUsername || "")
-
     // Load inventory data
     loadInventory()
-
-    // Load pending orders
-    loadPendingOrders(storedUsername || "")
   }, [])
 
   useEffect(() => {
@@ -50,18 +43,26 @@ export default function TakeItemsPage() {
     setFilteredItems(filtered)
   }, [items, searchQuery, categoryFilter])
 
+  // Load cart from localStorage on initial render
   useEffect(() => {
-    // Check limits for each item
-    if (username) {
-      const limits: Record<string, { allowed: boolean; reason?: string; availableQuantity?: number }> = {}
-
-      items.forEach((item) => {
-        limits[item.id] = canStudentTakeItem(username, item.id, 1)
-      })
-
-      setItemLimits(limits)
+    const savedCart = localStorage.getItem("cart")
+    if (savedCart) {
+      try {
+        setCart(JSON.parse(savedCart))
+      } catch (error) {
+        console.error("Error loading cart from localStorage:", error)
+      }
     }
-  }, [items, username])
+  }, [])
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem("cart", JSON.stringify(cart))
+    } catch (error) {
+      console.error("Error saving cart to localStorage:", error)
+    }
+  }, [cart])
 
   const loadInventory = () => {
     const inventoryItems = getInventoryItems()
@@ -69,48 +70,52 @@ export default function TakeItemsPage() {
     setFilteredItems(inventoryItems)
   }
 
-  const loadPendingOrders = (studentId: string) => {
-    const allOrders = getOrders()
-    const studentPendingOrders = allOrders.filter(
-      (order) => order.studentId === studentId && order.status === "pending",
-    )
-    setPendingOrders(studentPendingOrders)
-  }
-
   const addToCart = (item: InventoryItem) => {
-    // Check if student can take this item
-    const checkResult = canStudentTakeItem(username, item.id, 1)
-    if (!checkResult.allowed) {
-      alert(checkResult.reason || "You cannot take this item at this time")
-      return
-    }
-
     // Check if item is already in cart
-    const existingItem = cart.find((cartItem) => cartItem.item.id === item.id)
+    const existingItem = cart.find((cartItem) => cartItem.id === item.id)
 
     if (existingItem) {
-      // Check if adding one more would exceed the limit
-      const newQuantity = existingItem.quantity + 1
-      const limitCheck = canStudentTakeItem(username, item.id, newQuantity)
+      // If item exists, update quantity
+      const newQuantity = item.isWeighed
+        ? existingItem.quantity + 0.1 // Add 0.1 for weighed items
+        : existingItem.quantity + 1 // Add 1 for regular items
 
-      if (!limitCheck.allowed) {
-        alert(limitCheck.reason || `You can only take up to ${item.studentLimit} of this item`)
+      // Check if we're exceeding the student limit
+      if (newQuantity > item.studentLimit) {
+        alert(`Limited to ${item.studentLimit} ${item.unit || "items"} per student`)
         return
       }
 
-      // If item exists and within limits, update quantity
       const updatedCart = cart.map((cartItem) =>
-        cartItem.item.id === item.id ? { ...cartItem, quantity: newQuantity } : cartItem,
+        cartItem.id === item.id ? { ...cartItem, quantity: newQuantity } : cartItem,
       )
       setCart(updatedCart)
     } else {
-      // If item doesn't exist, add to cart with quantity 1
-      setCart([...cart, { item, quantity: 1 }])
+      // If item doesn't exist, add to cart with quantity 1 or 0.1 for weighed items
+      const initialQuantity = item.isWeighed ? 0.1 : 1
+
+      // Check if initial quantity exceeds student limit
+      if (initialQuantity > item.studentLimit) {
+        alert(`Limited to ${item.studentLimit} ${item.unit || "items"} per student`)
+        return
+      }
+
+      setCart([
+        ...cart,
+        {
+          id: item.id,
+          name: item.name,
+          quantity: initialQuantity,
+          category: item.category,
+          unit: item.unit,
+          studentLimit: item.studentLimit,
+        },
+      ])
     }
   }
 
   const removeFromCart = (itemId: string) => {
-    setCart(cart.filter((cartItem) => cartItem.item.id !== itemId))
+    setCart(cart.filter((cartItem) => cartItem.id !== itemId))
   }
 
   const updateCartItemQuantity = (itemId: string, quantity: number) => {
@@ -119,41 +124,18 @@ export default function TakeItemsPage() {
       return
     }
 
-    // Check if quantity is available in inventory
+    // Find the item in inventory to check student limit
     const inventoryItem = items.find((item) => item.id === itemId)
     if (!inventoryItem) return
 
     // Check if quantity exceeds student limit
-    const limitCheck = canStudentTakeItem(username, itemId, quantity)
-    if (!limitCheck.allowed) {
-      alert(limitCheck.reason || `You can only take up to ${inventoryItem.studentLimit} of this item`)
+    if (quantity > inventoryItem.studentLimit) {
+      alert(`Limited to ${inventoryItem.studentLimit} ${inventoryItem.unit || "items"} per student`)
       return
     }
 
-    if (inventoryItem && quantity > inventoryItem.quantity) {
-      alert(`Only ${inventoryItem.quantity} items available in stock`)
-      return
-    }
-
-    const updatedCart = cart.map((cartItem) => (cartItem.item.id === itemId ? { ...cartItem, quantity } : cartItem))
+    const updatedCart = cart.map((cartItem) => (cartItem.id === itemId ? { ...cartItem, quantity } : cartItem))
     setCart(updatedCart)
-  }
-
-  // Function to simulate sending an email notification
-  const sendEmailNotification = (username: string, cartItems: { item: InventoryItem; quantity: number }[]) => {
-    console.log("Sending email notification to asufian1@umbc.edu")
-    console.log(`Student: ${username}`)
-    console.log("Items:")
-    cartItems.forEach((cartItem) => {
-      console.log(`- ${cartItem.item.name} (${cartItem.item.category}): ${cartItem.quantity}`)
-    })
-
-    // In a real implementation, this would use an email API
-    // For now, we'll just show an alert to simulate the email being sent
-    setShowEmailAlert(true)
-    setTimeout(() => {
-      setShowEmailAlert(false)
-    }, 5000)
   }
 
   const handleCheckout = () => {
@@ -162,42 +144,8 @@ export default function TakeItemsPage() {
       return
     }
 
-    // Process the checkout
-    const result = takeItems(
-      cart.map((cartItem) => ({
-        itemId: cartItem.item.id,
-        itemName: cartItem.item.name,
-        quantity: cartItem.quantity,
-        user: username,
-      })),
-    )
-
-    if (!result.success) {
-      // Handle errors
-      if (result.errors) {
-        const errorMessages = Object.values(result.errors).join("\n")
-        alert(`Checkout failed:\n${errorMessages}`)
-      } else {
-        alert("Checkout failed. Please try again.")
-      }
-      return
-    }
-
-    // Send email notification
-    sendEmailNotification(username, cart)
-
-    // Show order placed alert
-    setShowOrderPlacedAlert(true)
-    setTimeout(() => {
-      setShowOrderPlacedAlert(false)
-    }, 5000)
-
-    // Reset cart and reload inventory
-    setCart([])
-    loadInventory()
-
-    // Reload pending orders
-    loadPendingOrders(username)
+    // Navigate to checkout page
+    router.push("/dashboard/checkout")
   }
 
   // Function to get color based on category
@@ -248,17 +196,6 @@ export default function TakeItemsPage() {
         </CardContent>
       </Card>
 
-      {/* Email notification alert */}
-      {showEmailAlert && (
-        <Alert className="bg-green-50 border-green-200">
-          <Mail className="h-4 w-4 text-green-600" />
-          <AlertTitle>Order Notification Sent</AlertTitle>
-          <AlertDescription>
-            Your order details have been sent to the store administrator at asufian1@umbc.edu
-          </AlertDescription>
-        </Alert>
-      )}
-
       {/* Order placed alert */}
       {showOrderPlacedAlert && (
         <Alert className="bg-green-50 border-green-200">
@@ -268,47 +205,6 @@ export default function TakeItemsPage() {
             Your order has been placed and is pending fulfillment. You'll be notified when it's ready for pickup.
           </AlertDescription>
         </Alert>
-      )}
-
-      {/* Pending Orders */}
-      {pendingOrders.length > 0 && (
-        <Card className="border-t-4 border-amber-500">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Clock className="mr-2 h-5 w-5 text-amber-500" />
-              Your Pending Orders
-            </CardTitle>
-            <CardDescription>
-              You have {pendingOrders.length} pending {pendingOrders.length === 1 ? "order" : "orders"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {pendingOrders.map((order) => (
-                <div key={order.id} className="border rounded-md p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="font-medium">Order #{order.id.substring(0, 8)}...</p>
-                    <p className="text-sm text-muted-foreground">{new Date(order.createdAt).toLocaleDateString()}</p>
-                  </div>
-                  <div className="space-y-2">
-                    {order.items.map((item, index) => (
-                      <div key={index} className="flex justify-between text-sm">
-                        <span>{item.itemName}</span>
-                        <span>x{item.quantity}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 bg-amber-50 p-2 rounded-md flex items-center">
-                    <Clock className="h-4 w-4 text-amber-600 mr-2" />
-                    <p className="text-sm text-amber-600">
-                      Your order is being prepared. You'll be notified when it's ready for pickup.
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       <div className="flex flex-col md:flex-row gap-6">
@@ -366,30 +262,37 @@ export default function TakeItemsPage() {
               {cart.length > 0 ? (
                 <div className="space-y-4 max-h-80 overflow-auto pr-2">
                   {cart.map((cartItem) => (
-                    <div key={cartItem.item.id} className="flex items-center justify-between border-b pb-2">
+                    <div key={cartItem.id} className="flex items-center justify-between border-b pb-2">
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{cartItem.item.name}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{cartItem.item.category}</p>
+                        <p className="font-medium text-sm">{cartItem.name}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{cartItem.category}</p>
                       </div>
                       <div className="flex items-center space-x-2">
                         <Button
                           variant="outline"
                           size="icon"
                           className="h-6 w-6 rounded-full"
-                          onClick={() => updateCartItemQuantity(cartItem.item.id, cartItem.quantity - 1)}
+                          onClick={() => {
+                            const decrementAmount = cartItem.unit === "kg" || cartItem.unit === "lb" ? 0.1 : 1
+                            updateCartItemQuantity(cartItem.id, cartItem.quantity - decrementAmount)
+                          }}
                         >
                           <Minus className="h-3 w-3" />
                         </Button>
-                        <span className="w-6 text-center text-sm">{cartItem.quantity}</span>
+                        <span className="w-6 text-center text-sm">
+                          {cartItem.unit === "kg" || cartItem.unit === "lb"
+                            ? cartItem.quantity.toFixed(1)
+                            : cartItem.quantity}
+                        </span>
                         <Button
                           variant="outline"
                           size="icon"
                           className="h-6 w-6 rounded-full"
-                          onClick={() => updateCartItemQuantity(cartItem.item.id, cartItem.quantity + 1)}
-                          disabled={
-                            cartItem.quantity >= cartItem.item.quantity ||
-                            cartItem.quantity >= cartItem.item.studentLimit
-                          }
+                          onClick={() => {
+                            const incrementAmount = cartItem.unit === "kg" || cartItem.unit === "lb" ? 0.1 : 1
+                            updateCartItemQuantity(cartItem.id, cartItem.quantity + incrementAmount)
+                          }}
+                          disabled={cartItem.quantity >= cartItem.studentLimit}
                         >
                           <Plus className="h-3 w-3" />
                         </Button>
@@ -397,7 +300,7 @@ export default function TakeItemsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => removeFromCart(cartItem.item.id)}
+                          onClick={() => removeFromCart(cartItem.id)}
                         >
                           <X className="h-3 w-3" />
                         </Button>
@@ -420,7 +323,7 @@ export default function TakeItemsPage() {
                 onClick={handleCheckout}
                 disabled={cart.length === 0}
               >
-                Checkout
+                Go to Checkout
               </Button>
             </CardFooter>
           </Card>
@@ -432,55 +335,43 @@ export default function TakeItemsPage() {
 
           {filteredItems.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredItems.map((item) => {
-                const itemLimit = itemLimits[item.id]
-                const isRestricted = itemLimit && !itemLimit.allowed
-
-                return (
-                  <Card
-                    key={item.id}
-                    className={`overflow-hidden hover:shadow-md transition-shadow ${isRestricted ? "border-amber-300" : ""}`}
+              {filteredItems.map((item) => (
+                <Card key={item.id} className="overflow-hidden hover:shadow-md transition-shadow">
+                  <div
+                    className={`relative h-40 ${getColorForCategory(item.category)} flex items-center justify-center`}
                   >
-                    <div
-                      className={`relative h-40 ${getColorForCategory(item.category)} flex items-center justify-center`}
-                    >
-                      <h3 className="font-bold text-xl">{item.name}</h3>
-                      <div className="absolute top-2 right-2 bg-primary text-black text-xs font-bold px-2 py-1 rounded-full">
-                        {item.quantity} in stock
-                      </div>
-                      {item.studentLimit > 0 && (
-                        <div className="absolute top-2 left-2 bg-white/80 text-black text-xs font-bold px-2 py-1 rounded-full">
-                          Limit: {item.studentLimit} per student
-                        </div>
-                      )}
+                    <h3 className="font-bold text-xl">{item.name}</h3>
+                    <div className="absolute top-2 right-2 bg-primary text-black text-xs font-bold px-2 py-1 rounded-full">
+                      {item.isWeighed
+                        ? `${item.quantity.toFixed(1)} ${item.unit}`
+                        : `${item.quantity} ${item.unit || "items"}`}{" "}
+                      in stock
                     </div>
-                    <CardContent className="p-4">
-                      <p className="text-sm text-muted-foreground capitalize">{item.category}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Time restriction: {formatTimeRestriction(item.limitDuration, item.limitDurationMinutes || 0)}
-                      </p>
-
-                      {isRestricted && (
-                        <div className="mt-2 flex items-center text-amber-600 text-sm">
-                          <AlertTriangle className="h-4 w-4 mr-1" />
-                          <span>{itemLimit.reason}</span>
-                        </div>
-                      )}
-                    </CardContent>
-                    <CardFooter className="p-4 pt-0 flex justify-between">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => addToCart(item)}
-                        disabled={item.quantity === 0 || isRestricted}
-                      >
-                        {item.quantity === 0 ? "Out of Stock" : isRestricted ? "Restricted" : "Add to Cart"}
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                )
-              })}
+                    {item.studentLimit > 0 && (
+                      <div className="absolute top-2 left-2 bg-white/80 text-black text-xs font-bold px-2 py-1 rounded-full">
+                        Limit: {item.studentLimit} per student
+                      </div>
+                    )}
+                  </div>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground capitalize">{item.category}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Time restriction: {formatTimeRestriction(item.limitDuration, item.limitDurationMinutes || 0)}
+                    </p>
+                  </CardContent>
+                  <CardFooter className="p-4 pt-0 flex justify-between">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => addToCart(item)}
+                      disabled={item.quantity === 0}
+                    >
+                      {item.quantity === 0 ? "Out of Stock" : "Add to Cart"}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
             </div>
           ) : (
             <Card className="p-8 text-center">

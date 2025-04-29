@@ -9,7 +9,6 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Retriever's Essentials Inventory",
   description: "Campus Food Store Inventory Management System",
-    generator: 'hi'
 }
 
 export default function RootLayout({
@@ -27,7 +26,3 @@ export default function RootLayout({
     </html>
   )
 }
-
-
-
-import './globals.css'

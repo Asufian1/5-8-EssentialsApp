@@ -1,16 +1,21 @@
 "use client"
 
-// analytics page going through popular items busy days etc
-
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getInventoryItems, getTransactions } from "@/lib/data"
-import type { Transaction } from "@/lib/types"
+import { getInventoryItems, getTransactions, getProductAnalytics, getCategoryAnalytics } from "@/lib/data"
+import type { Transaction, InventoryItem } from "@/lib/types"
 import { BarChart } from "@/components/ui/chart"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ChevronDown, ChevronUp, Search, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 
 export default function AnalyticsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [popularItems, setPopularItems] = useState<{ name: string; value: number }[]>([])
   const [dailyVisits, setDailyVisits] = useState<{ date: string; count: number }[]>([])
   const [categoryDistribution, setCategoryDistribution] = useState<{ name: string; value: number }[]>([])
@@ -20,10 +25,39 @@ export default function AnalyticsPage() {
     { name: string; value: number; category: string }[]
   >([])
 
+  // New states for enhanced analytics
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [categoryItemsDialogOpen, setCategoryItemsDialogOpen] = useState(false)
+  const [categoryItems, setCategoryItems] = useState<{ name: string; value: number; currentStock: number }[]>([])
+  const [productAnalytics, setProductAnalytics] = useState<
+    {
+      id: string
+      name: string
+      category: string
+      currentStock: number
+      totalSold: number
+      totalRestocked: number
+      popularityScore: number
+      turnoverRate: number
+    }[]
+  >([])
+  const [productSearchQuery, setProductSearchQuery] = useState("")
+  const [productSortField, setProductSortField] = useState("totalSold")
+  const [productSortDirection, setProductSortDirection] = useState<"asc" | "desc">("desc")
+  const [timeRange, setTimeRange] = useState("all") // all, week, month
+
   useEffect(() => {
     // Load transaction data
     const transactionData = getTransactions()
     setTransactions(transactionData)
+
+    // Load inventory items
+    const items = getInventoryItems()
+    setInventoryItems(items)
+
+    // Get product analytics data
+    const analytics = getProductAnalytics()
+    setProductAnalytics(analytics)
 
     // Calculate popular items
     const itemCounts: Record<string, number> = {}
@@ -63,14 +97,18 @@ export default function AnalyticsPage() {
     setDailyVisits(dailyVisitData)
 
     // Calculate category distribution
-    const inventoryItems = getInventoryItems()
     const categoryCounts: Record<string, number> = {}
 
-    inventoryItems.forEach((item) => {
-      if (!categoryCounts[item.category]) {
-        categoryCounts[item.category] = 0
+    transactionData.forEach((transaction) => {
+      if (transaction.type === "out") {
+        const item = items.find((i) => i.id === transaction.itemId)
+        if (item) {
+          if (!categoryCounts[item.category]) {
+            categoryCounts[item.category] = 0
+          }
+          categoryCounts[item.category] += transaction.quantity
+        }
       }
-      categoryCounts[item.category] += 1
     })
 
     const categoryData = Object.entries(categoryCounts).map(([name, value]) => ({ name, value }))
@@ -147,7 +185,7 @@ export default function AnalyticsPage() {
       if (transaction.type === "out") {
         if (!specificFoodCounts[transaction.itemName]) {
           // Find the category for this item
-          const item = inventoryItems.find((item) => item.id === transaction.itemId)
+          const item = items.find((item) => item.id === transaction.itemId)
           specificFoodCounts[transaction.itemName] = {
             count: 0,
             category: item?.category || "unknown",
@@ -168,6 +206,65 @@ export default function AnalyticsPage() {
 
     setSpecificFoodDistribution(specificFoodData)
   }, [])
+
+  // Function to handle category bar click
+  const handleCategoryClick = (category: string) => {
+    setSelectedCategory(category)
+
+    // Get category analytics data
+    const categoryAnalytics = getCategoryAnalytics(category)
+
+    // Transform data for display
+    const itemsInCategory = categoryAnalytics.map((item) => ({
+      name: item.name,
+      value: item.totalSold,
+      currentStock: item.currentStock,
+    }))
+
+    setCategoryItems(itemsInCategory)
+    setCategoryItemsDialogOpen(true)
+  }
+
+  // Function to handle time range change
+  const handleTimeRangeChange = (range: string) => {
+    setTimeRange(range)
+    // In a real app, you would filter the data based on the time range
+    // For now, we'll just update the state
+  }
+
+  // Function to handle product sorting
+  const handleProductSort = (field: string) => {
+    if (productSortField === field) {
+      // Toggle direction if same field
+      setProductSortDirection(productSortDirection === "asc" ? "desc" : "asc")
+    } else {
+      // New field, default to descending
+      setProductSortField(field)
+      setProductSortDirection("desc")
+    }
+  }
+
+  // Filter and sort product analytics
+  const filteredProductAnalytics = productAnalytics
+    .filter(
+      (product) =>
+        product.name.toLowerCase().includes(productSearchQuery.toLowerCase()) ||
+        product.category.toLowerCase().includes(productSearchQuery.toLowerCase()),
+    )
+    .sort((a, b) => {
+      const field = productSortField as keyof typeof a
+
+      // Handle string vs number comparison
+      if (typeof a[field] === "string" && typeof b[field] === "string") {
+        return productSortDirection === "asc"
+          ? (a[field] as string).localeCompare(b[field] as string)
+          : (b[field] as string).localeCompare(a[field] as string)
+      } else {
+        return productSortDirection === "asc"
+          ? (a[field] as number) - (b[field] as number)
+          : (b[field] as number) - (a[field] as number)
+      }
+    })
 
   // Function to get color based on category
   const getCategoryColor = (category: string) => {
@@ -215,6 +312,9 @@ export default function AnalyticsPage() {
           <TabsTrigger value="detailed" className="data-[state=active]:bg-primary data-[state=active]:text-black">
             Detailed Analysis
           </TabsTrigger>
+          <TabsTrigger value="products" className="data-[state=active]:bg-primary data-[state=active]:text-black">
+            Product Analytics
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -258,21 +358,31 @@ export default function AnalyticsPage() {
             <Card className="col-span-1 border-t-4 border-primary">
               <CardHeader>
                 <CardTitle>Category Distribution</CardTitle>
-                <CardDescription>Items by category</CardDescription>
+                <CardDescription>Items by category (click bars for details)</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
                 {categoryDistribution.length > 0 ? (
-                  <BarChart
-                    data={categoryDistribution.map((item) => ({
-                      name: item.name.charAt(0).toUpperCase() + item.name.slice(1),
-                      value: item.value,
-                    }))}
-                    index="name"
-                    categories={["value"]}
-                    colors={["primary"]}
-                    valueFormatter={(value) => `${value} items`}
-                    layout="vertical"
-                  />
+                  <div className="space-y-4">
+                    {categoryDistribution.map((item) => (
+                      <div key={item.name} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium capitalize">{item.name}</span>
+                          <span className="text-sm text-muted-foreground">{item.value} items</span>
+                        </div>
+                        <div
+                          className="w-full bg-gray-200 rounded-full h-2.5 cursor-pointer hover:opacity-80"
+                          onClick={() => handleCategoryClick(item.name)}
+                        >
+                          <div
+                            className={`${getCategoryColor(item.name)} h-2.5 rounded-full`}
+                            style={{
+                              width: `${(item.value / Math.max(...categoryDistribution.map((i) => i.value))) * 100}%`,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className="flex h-full items-center justify-center">
                     <p className="text-muted-foreground">No data available</p>
@@ -490,7 +600,11 @@ export default function AnalyticsPage() {
                         .reduce((sum, item) => sum + item.value, 0)
 
                       return (
-                        <div key={category} className="text-center">
+                        <div
+                          key={category}
+                          className="text-center cursor-pointer hover:opacity-80"
+                          onClick={() => handleCategoryClick(category)}
+                        >
                           <div
                             className={`mx-auto w-16 h-16 rounded-full ${getCategoryColor(category)} flex items-center justify-center mb-2`}
                           >
@@ -547,8 +661,315 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* New Product Analytics Tab */}
+        <TabsContent value="products" className="space-y-4">
+          <Card className="border-t-4 border-primary">
+            <CardHeader>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <CardTitle>Product-Level Analytics</CardTitle>
+                  <CardDescription>Detailed analysis of individual product performance</CardDescription>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Select value={timeRange} onValueChange={handleTimeRangeChange}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="Time Range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Time</SelectItem>
+                      <SelectItem value="week">Last 7 Days</SelectItem>
+                      <SelectItem value="month">Last 30 Days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search products..."
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    className="max-w-sm"
+                  />
+                </div>
+
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleProductSort("name")}
+                        >
+                          <div className="flex items-center gap-1">
+                            Product
+                            {productSortField === "name" &&
+                              (productSortDirection === "asc" ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              ))}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleProductSort("category")}
+                        >
+                          <div className="flex items-center gap-1">
+                            Category
+                            {productSortField === "category" &&
+                              (productSortDirection === "asc" ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              ))}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className="text-right cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleProductSort("currentStock")}
+                        >
+                          <div className="flex items-center justify-end gap-1">
+                            Current Stock
+                            {productSortField === "currentStock" &&
+                              (productSortDirection === "asc" ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              ))}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className="text-right cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleProductSort("totalSold")}
+                        >
+                          <div className="flex items-center justify-end gap-1">
+                            Total Sold
+                            {productSortField === "totalSold" &&
+                              (productSortDirection === "asc" ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              ))}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className="text-right cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleProductSort("popularityScore")}
+                        >
+                          <div className="flex items-center justify-end gap-1">
+                            Popularity
+                            {productSortField === "popularityScore" &&
+                              (productSortDirection === "asc" ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              ))}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          className="text-right cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleProductSort("turnoverRate")}
+                        >
+                          <div className="flex items-center justify-end gap-1">
+                            Turnover Rate
+                            {productSortField === "turnoverRate" &&
+                              (productSortDirection === "asc" ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              ))}
+                          </div>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredProductAnalytics.length > 0 ? (
+                        filteredProductAnalytics.map((product) => (
+                          <TableRow key={product.id}>
+                            <TableCell className="font-medium">{product.name}</TableCell>
+                            <TableCell className="capitalize">{product.category}</TableCell>
+                            <TableCell className="text-right">
+                              {product.currentStock}
+                              {product.currentStock < 5 && (
+                                <Badge variant="destructive" className="ml-2">
+                                  Low
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {product.totalSold}
+                              {product.totalSold > 20 && <TrendingUp className="h-4 w-4 text-green-500 inline ml-2" />}
+                              {product.totalSold === 0 && (
+                                <AlertTriangle className="h-4 w-4 text-amber-500 inline ml-2" />
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {product.popularityScore.toFixed(2)}
+                              {product.popularityScore > 1 && (
+                                <Badge variant="outline" className="ml-2 bg-green-50">
+                                  High
+                                </Badge>
+                              )}
+                              {product.popularityScore < 0.1 && (
+                                <Badge variant="outline" className="ml-2 bg-red-50">
+                                  Low
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {product.turnoverRate.toFixed(2)}
+                              {product.turnoverRate > 0.7 ? (
+                                <TrendingUp className="h-4 w-4 text-green-500 inline ml-2" />
+                              ) : product.turnoverRate < 0.3 ? (
+                                <TrendingDown className="h-4 w-4 text-red-500 inline ml-2" />
+                              ) : null}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={6} className="h-24 text-center">
+                            No products found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="flex justify-between items-center text-sm text-muted-foreground">
+                  <div>
+                    Showing {filteredProductAnalytics.length} of {productAnalytics.length} products
+                  </div>
+                  <div>
+                    {timeRange === "all" ? "All time data" : timeRange === "week" ? "Last 7 days" : "Last 30 days"}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="border-t-4 border-green-500">
+              <CardHeader>
+                <CardTitle>Best Selling Products</CardTitle>
+                <CardDescription>Products with highest sales volume</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {filteredProductAnalytics
+                    .sort((a, b) => b.totalSold - a.totalSold)
+                    .slice(0, 5)
+                    .map((product, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-100"
+                      >
+                        <div>
+                          <p className="font-medium">{product.name}</p>
+                          <p className="text-sm text-muted-foreground capitalize">{product.category}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium">
+                            <span className="text-green-600">{product.totalSold} sold</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">Current stock: {product.currentStock}</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-t-4 border-red-500">
+              <CardHeader>
+                <CardTitle>Non-Moving Products</CardTitle>
+                <CardDescription>Products with low or no sales</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {filteredProductAnalytics
+                    .filter((product) => product.totalSold === 0 || product.popularityScore < 0.1)
+                    .slice(0, 5)
+                    .map((product, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100"
+                      >
+                        <div>
+                          <p className="font-medium">{product.name}</p>
+                          <p className="text-sm text-muted-foreground capitalize">{product.category}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium">
+                            {product.totalSold === 0 ? (
+                              <span className="text-red-500">Never sold</span>
+                            ) : (
+                              <span className="text-amber-600">Low popularity</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Current stock: {product.currentStock}</p>
+                        </div>
+                      </div>
+                    ))}
+
+                  {filteredProductAnalytics.filter(
+                    (product) => product.totalSold === 0 || product.popularityScore < 0.1,
+                  ).length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <AlertTriangle className="mx-auto h-12 w-12 opacity-50 mb-2" />
+                      <p>No non-moving products found</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
       </Tabs>
+
+      {/* Category Items Dialog */}
+      <Dialog open={categoryItemsDialogOpen} onOpenChange={setCategoryItemsDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="capitalize">{selectedCategory} Category Items</DialogTitle>
+            <DialogDescription>Detailed breakdown of items in the {selectedCategory} category</DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {categoryItems.length > 0 ? (
+              <div className="space-y-4">
+                {categoryItems.map((item, index) => (
+                  <div key={index} className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{item.name}</span>
+                      <div className="text-right">
+                        <span className="text-sm text-muted-foreground">{item.value} sold</span>
+                        <span className="text-xs text-muted-foreground ml-2">(Stock: {item.currentStock})</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div
+                        className={`h-2.5 rounded-full ${getCategoryColor(selectedCategory || "")}`}
+                        style={{ width: `${(item.value / Math.max(...categoryItems.map((i) => i.value))) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No items found in this category</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
