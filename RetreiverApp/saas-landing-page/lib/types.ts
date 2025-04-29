@@ -1,3 +1,9 @@
+export interface Category {
+  id: string
+  name: string
+  description: string
+}
+
 export interface InventoryItem {
   id: string
   name: string

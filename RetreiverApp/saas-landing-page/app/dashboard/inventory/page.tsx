@@ -18,34 +18,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, Search, Minus, Settings, Scale } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
-import type { InventoryItem } from "@/lib/types"
+import type { InventoryItem, Category } from "@/lib/types"
 import { addInventoryItem, getInventoryItems, updateInventoryItem, formatTimeRestriction } from "@/lib/data"
 
 // Add this at the beginning of the file, right after the imports
-const getCategories = () => {
+const getCategories = (): Category[] => {
   if (typeof window === "undefined") return []
 
-  const storedCategories = localStorage.getItem("inventory_categories")
-  if (storedCategories) {
+  const stored = localStorage.getItem("inventory_categories")
+  if (stored) {
     try {
-      return JSON.parse(storedCategories)
+      return JSON.parse(stored) as Category[]
     } catch (error) {
       console.error("Error parsing categories:", error)
       return []
     }
   }
 
-  // Default categories if none are found
   return [
     { id: "essentials", name: "Essentials", description: "Basic food items" },
-    { id: "grains", name: "Grains", description: "Rice, pasta, and other grains" },
-    { id: "canned", name: "Canned Goods", description: "Canned foods and preserved items" },
-    { id: "produce", name: "Produce", description: "Fresh fruits and vegetables" },
-    { id: "dairy", name: "Dairy", description: "Milk, cheese, and other dairy products" },
-    { id: "south-asian", name: "South Asian", description: "South Asian food items" },
-    { id: "other", name: "Other", description: "Miscellaneous items" },
+    { id: "grains",     name: "Grains",     description: "Rice, pasta, and other grains" },
+    { id: "canned",     name: "Canned Goods", description: "Canned foods and preserved items" },
+    { id: "produce",    name: "Produce",    description: "Fresh fruits and vegetables" },
+    { id: "dairy",      name: "Dairy",      description: "Milk, cheese, and other dairy products" },
+    { id: "south-asian",name: "South Asian",description: "South Asian food items" },
+    { id: "other",      name: "Other",      description: "Miscellaneous items" },
   ]
 }
+
 
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -336,7 +336,7 @@ export default function InventoryPage() {
                   <div className="grid gap-2">
                     <Label htmlFor="unit">Unit of Measurement</Label>
                     <Select
-                      value={newItem.unit}
+                      value={newItem.unit ?? undefined}
                       onValueChange={(value: string) => {
                         // Validate the value before setting it
                         if (value === "kg" || value === "lb" || value === "item") {
