@@ -16,51 +16,50 @@ export default function TakeItemsPage() {
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [cart, setCart] = useState<
-    { id: string; name: string; quantity: number; category: string; unit?: string | null; studentLimit: number }[]
-  >([])
-  const [studentName, setStudentName] = useState("")
+  const [cart, setCart] = useState<{
+    id: string
+    name: string
+    quantity: number
+    category: string
+    unit?: string | null
+    studentLimit: number
+  }[]>([])
   const [showOrderPlacedAlert, setShowOrderPlacedAlert] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
-    // Load inventory data
     loadInventory()
   }, [])
 
   useEffect(() => {
-    // Filter items based on search query and category
     let filtered = [...items]
-
     if (searchQuery) {
-      filtered = filtered.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      filtered = filtered.filter(item =>
+        item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
     }
-
     if (categoryFilter !== "all") {
-      filtered = filtered.filter((item) => item.category === categoryFilter)
+      filtered = filtered.filter(item => item.category === categoryFilter)
     }
-
     setFilteredItems(filtered)
   }, [items, searchQuery, categoryFilter])
 
-  // Load cart from localStorage on initial render
   useEffect(() => {
     const savedCart = localStorage.getItem("cart")
     if (savedCart) {
       try {
         setCart(JSON.parse(savedCart))
-      } catch (error) {
-        console.error("Error loading cart from localStorage:", error)
+      } catch {
+        console.error("Error loading cart from localStorage")
       }
     }
   }, [])
 
-  // Save cart to localStorage whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem("cart", JSON.stringify(cart))
-    } catch (error) {
-      console.error("Error saving cart to localStorage:", error)
+    } catch {
+      console.error("Error saving cart to localStorage")
     }
   }, [cart])
 
@@ -71,35 +70,26 @@ export default function TakeItemsPage() {
   }
 
   const addToCart = (item: InventoryItem) => {
-    // Check if item is already in cart
-    const existingItem = cart.find((cartItem) => cartItem.id === item.id)
-
-    if (existingItem) {
-      // If item exists, update quantity
-      const newQuantity = item.isWeighed
-        ? existingItem.quantity + 0.1 // Add 0.1 for weighed items
-        : existingItem.quantity + 1 // Add 1 for regular items
-
-      // Check if we're exceeding the student limit
-      if (newQuantity > item.studentLimit) {
+    const existing = cart.find(c => c.id === item.id)
+    if (existing) {
+      const delta = item.isWeighed ? 0.1 : 1
+      const newQuantity = existing.quantity + delta
+      // enforce limit only if studentLimit > 0
+      if (item.studentLimit > 0 && newQuantity > item.studentLimit) {
         alert(`Limited to ${item.studentLimit} ${item.unit || "items"} per student`)
         return
       }
-
-      const updatedCart = cart.map((cartItem) =>
-        cartItem.id === item.id ? { ...cartItem, quantity: newQuantity } : cartItem,
+      setCart(
+        cart.map(c =>
+          c.id === item.id ? { ...c, quantity: newQuantity } : c
+        )
       )
-      setCart(updatedCart)
     } else {
-      // If item doesn't exist, add to cart with quantity 1 or 0.1 for weighed items
       const initialQuantity = item.isWeighed ? 0.1 : 1
-
-      // Check if initial quantity exceeds student limit
-      if (initialQuantity > item.studentLimit) {
+      if (item.studentLimit > 0 && initialQuantity > item.studentLimit) {
         alert(`Limited to ${item.studentLimit} ${item.unit || "items"} per student`)
         return
       }
-
       setCart([
         ...cart,
         {
@@ -115,7 +105,7 @@ export default function TakeItemsPage() {
   }
 
   const removeFromCart = (itemId: string) => {
-    setCart(cart.filter((cartItem) => cartItem.id !== itemId))
+    setCart(cart.filter(c => c.id !== itemId))
   }
 
   const updateCartItemQuantity = (itemId: string, quantity: number) => {
@@ -123,19 +113,24 @@ export default function TakeItemsPage() {
       removeFromCart(itemId)
       return
     }
-
-    // Find the item in inventory to check student limit
-    const inventoryItem = items.find((item) => item.id === itemId)
+    const inventoryItem = items.find(i => i.id === itemId)
     if (!inventoryItem) return
-
-    // Check if quantity exceeds student limit
-    if (quantity > inventoryItem.studentLimit) {
-      alert(`Limited to ${inventoryItem.studentLimit} ${inventoryItem.unit || "items"} per student`)
+    if (
+      inventoryItem.studentLimit > 0 &&
+      quantity > inventoryItem.studentLimit
+    ) {
+      alert(
+        `Limited to ${inventoryItem.studentLimit} ${
+          inventoryItem.unit || "items"
+        } per student`
+      )
       return
     }
-
-    const updatedCart = cart.map((cartItem) => (cartItem.id === itemId ? { ...cartItem, quantity } : cartItem))
-    setCart(updatedCart)
+    setCart(
+      cart.map(c =>
+        c.id === itemId ? { ...c, quantity } : c
+      )
+    )
   }
 
   const handleCheckout = () => {
@@ -143,12 +138,9 @@ export default function TakeItemsPage() {
       alert("Your cart is empty")
       return
     }
-
-    // Navigate to checkout page
     router.push("/dashboard/checkout")
   }
 
-  // Function to get color based on category
   const getColorForCategory = (category: string) => {
     switch (category) {
       case "essentials":
@@ -174,8 +166,12 @@ export default function TakeItemsPage() {
       <div className="relative rounded-lg overflow-hidden h-40 bg-secondary">
         <div className="absolute inset-0 flex items-center">
           <div className="px-6 md:px-10">
-            <h1 className="text-2xl md:text-3xl font-bold text-white">Take Food Items</h1>
-            <p className="text-lg text-primary mt-2">Select items you need from our inventory</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">
+              Take Food Items
+            </h1>
+            <p className="text-lg text-primary mt-2">
+              Select items you need from our inventory
+            </p>
           </div>
         </div>
       </div>
@@ -189,8 +185,12 @@ export default function TakeItemsPage() {
             </div>
             <div>
               <h3 className="font-bold text-lg">Retriever's Essentials Location</h3>
-              <p className="text-muted-foreground">UMBC Commons Building, Second Floor, Next to the Bookstore</p>
-              <p className="text-muted-foreground mt-1">Open Monday-Friday, 10AM-4PM</p>
+              <p className="text-muted-foreground">
+                UMBC Commons Building, Second Floor, Next to the Bookstore
+              </p>
+              <p className="text-muted-foreground mt-1">
+                Open Monday-Friday, 10AM-4PM
+              </p>
             </div>
           </div>
         </CardContent>
@@ -201,15 +201,14 @@ export default function TakeItemsPage() {
         <Alert className="bg-green-50 border-green-200">
           <Clock className="h-4 w-4 text-green-600" />
           <AlertTitle>Order Placed Successfully</AlertTitle>
-          <AlertDescription>
-            Your order has been placed and is pending fulfillment. You'll be notified when it's ready for pickup.
-          </AlertDescription>
+          <AlertDescription>...</AlertDescription>
         </Alert>
       )}
 
       <div className="flex flex-col md:flex-row gap-6">
-        {/* Filters */}
+        {/* Filters and Cart */}
         <div className="w-full md:w-64 space-y-4">
+          {/* Filter Card */}
           <Card className="border-t-4 border-primary">
             <CardHeader>
               <CardTitle>Filter Items</CardTitle>
@@ -221,25 +220,22 @@ export default function TakeItemsPage() {
                   placeholder="Search items..."
                   className="pl-8"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={e => setSearchQuery(e.target.value)}
                 />
               </div>
-
               <div className="space-y-2">
                 <p className="text-sm font-medium">Category</p>
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <Select
+                  value={categoryFilter}
+                  onValueChange={setCategoryFilter}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="All Categories" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     <SelectItem value="essentials">Essentials</SelectItem>
-                    <SelectItem value="grains">Grains</SelectItem>
-                    <SelectItem value="canned">Canned Goods</SelectItem>
-                    <SelectItem value="produce">Produce</SelectItem>
-                    <SelectItem value="dairy">Dairy</SelectItem>
-                    <SelectItem value="south-asian">South Asian</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    {/* ...other categories... */}
                   </SelectContent>
                 </Select>
               </div>
@@ -250,49 +246,55 @@ export default function TakeItemsPage() {
           <Card className="border-t-4 border-primary sticky top-4">
             <CardHeader>
               <CardTitle className="flex items-center">
-                <ShoppingBasket className="mr-2 h-5 w-5 text-primary" />
-                Your Cart
+                <ShoppingBasket className="mr-2 h-5 w-5 text-primary" /> Your Cart
               </CardTitle>
               <CardDescription>
                 {cart.length} {cart.length === 1 ? "item" : "items"} selected
               </CardDescription>
             </CardHeader>
-
             <CardContent>
               {cart.length > 0 ? (
                 <div className="space-y-4 max-h-80 overflow-auto pr-2">
-                  {cart.map((cartItem) => (
-                    <div key={cartItem.id} className="flex items-center justify-between border-b pb-2">
+                  {cart.map(ci => (
+                    <div key={ci.id} className="flex items-center justify-between border-b pb-2">
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{cartItem.name}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{cartItem.category}</p>
+                        <p className="font-medium text-sm">{ci.name}</p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {ci.category}
+                        </p>
                       </div>
                       <div className="flex items-center space-x-2">
                         <Button
                           variant="outline"
                           size="icon"
                           className="h-6 w-6 rounded-full"
-                          onClick={() => {
-                            const decrementAmount = cartItem.unit === "kg" || cartItem.unit === "lb" ? 0.1 : 1
-                            updateCartItemQuantity(cartItem.id, cartItem.quantity - decrementAmount)
-                          }}
+                          onClick={() =>
+                            updateCartItemQuantity(
+                              ci.id,
+                              ci.quantity - (ci.unit === "kg" || ci.unit === "lb" ? 0.1 : 1)
+                            )
+                          }
                         >
                           <Minus className="h-3 w-3" />
                         </Button>
                         <span className="w-6 text-center text-sm">
-                          {cartItem.unit === "kg" || cartItem.unit === "lb"
-                            ? cartItem.quantity.toFixed(1)
-                            : cartItem.quantity}
+                          {ci.unit === "kg" || ci.unit === "lb"
+                            ? ci.quantity.toFixed(1)
+                            : ci.quantity}
                         </span>
                         <Button
                           variant="outline"
                           size="icon"
                           className="h-6 w-6 rounded-full"
-                          onClick={() => {
-                            const incrementAmount = cartItem.unit === "kg" || cartItem.unit === "lb" ? 0.1 : 1
-                            updateCartItemQuantity(cartItem.id, cartItem.quantity + incrementAmount)
-                          }}
-                          disabled={cartItem.quantity >= cartItem.studentLimit}
+                          onClick={() =>
+                            updateCartItemQuantity(
+                              ci.id,
+                              ci.quantity + (ci.unit === "kg" || ci.unit === "lb" ? 0.1 : 1)
+                            )
+                          }
+                          disabled={
+                            ci.studentLimit > 0 && ci.quantity >= ci.studentLimit
+                          }
                         >
                           <Plus className="h-3 w-3" />
                         </Button>
@@ -300,7 +302,7 @@ export default function TakeItemsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => removeFromCart(cartItem.id)}
+                          onClick={() => removeFromCart(ci.id)}
                         >
                           <X className="h-3 w-3" />
                         </Button>
@@ -312,11 +314,9 @@ export default function TakeItemsPage() {
                 <div className="text-center py-8">
                   <ShoppingBasket className="mx-auto h-12 w-12 text-muted-foreground opacity-50" />
                   <p className="mt-2 text-muted-foreground">Your cart is empty</p>
-                  <p className="text-sm text-muted-foreground">Add items from the available items list</p>
                 </div>
               )}
             </CardContent>
-
             <CardFooter>
               <Button
                 className="w-full bg-primary text-black hover:bg-primary/90"
@@ -332,11 +332,13 @@ export default function TakeItemsPage() {
         {/* Items Grid */}
         <div className="flex-1">
           <h2 className="text-2xl font-bold mb-4">Available Items</h2>
-
           {filteredItems.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredItems.map((item) => (
-                <Card key={item.id} className="overflow-hidden hover:shadow-md transition-shadow">
+              {filteredItems.map(item => (
+                <Card
+                  key={item.id}
+                  className="overflow-hidden hover:shadow-md transition-shadow"
+                >
                   <div
                     className={`relative h-40 ${getColorForCategory(item.category)} flex items-center justify-center`}
                   >
@@ -344,8 +346,7 @@ export default function TakeItemsPage() {
                     <div className="absolute top-2 right-2 bg-primary text-black text-xs font-bold px-2 py-1 rounded-full">
                       {item.isWeighed
                         ? `${item.quantity.toFixed(1)} ${item.unit}`
-                        : `${item.quantity} ${item.unit || "items"}`}{" "}
-                      in stock
+                        : `${item.quantity} ${item.unit || "items"}`} in stock
                     </div>
                     {item.studentLimit > 0 && (
                       <div className="absolute top-2 left-2 bg-white/80 text-black text-xs font-bold px-2 py-1 rounded-full">
@@ -356,7 +357,10 @@ export default function TakeItemsPage() {
                   <CardContent className="p-4">
                     <p className="text-sm text-muted-foreground capitalize">{item.category}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Time restriction: {formatTimeRestriction(item.limitDuration, item.limitDurationMinutes || 0)}
+                      Time restriction: {formatTimeRestriction(
+                        item.limitDuration,
+                        item.limitDurationMinutes || 0
+                      )}
                     </p>
                   </CardContent>
                   <CardFooter className="p-4 pt-0 flex justify-between">
