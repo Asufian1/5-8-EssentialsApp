@@ -168,6 +168,15 @@ export default function CheckoutPage() {
   // Calculate total items
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0)
 
+  const formatQuantity = (quantity: number, unit: string | null | undefined) => {
+    if (unit === "kg" || unit === "lb") {
+      // For weight units, show up to 1 decimal place
+      return quantity % 1 === 0 ? quantity.toString() : quantity.toFixed(1)
+    }
+    // For items, show whole numbers
+    return Math.round(quantity).toString()
+  }
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="mb-6">
@@ -278,7 +287,10 @@ export default function CheckoutPage() {
                     <div key={index} className="flex justify-between items-center pb-2 border-b">
                       <div>
                         <p className="font-medium">{item.name}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Qty: {formatQty(item.quantity)}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          Qty: {formatQuantity(item.quantity, item.unit)} {item.unit || "item"}
+                          {item.quantity !== 1 && !item.unit && "s"}
+                        </p>
                       </div>
                     </div>
                   ))}

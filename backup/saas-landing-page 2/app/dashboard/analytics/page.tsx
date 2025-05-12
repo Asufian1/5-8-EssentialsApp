@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getInventoryItems, getTransactions, getProductAnalytics, getCategoryAnalytics } from "@/lib/data"
+import { getInventoryItems, getTransactions } from "@/lib/data-db" // Changed to use data-db instead of data
 import type { Transaction, InventoryItem } from "@/lib/types"
 import { BarChart } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -20,6 +20,7 @@ import {
   Download,
   Calendar,
   FileText,
+  RefreshCw,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -30,6 +31,7 @@ import { format, subDays, isAfter, isBefore } from "date-fns"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { PriceAndUsageAnalytics } from "@/components/cost-analytics"
+import { SeedAnalyticsData } from "@/components/seed-analytics-data"
 
 export default function AnalyticsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -73,177 +75,271 @@ export default function AnalyticsPage() {
   // Filtered data based on date range
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([])
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Format number to show at most 1 decimal place
   const formatNumber = (num: number): string => {
+    // For small decimal values (likely weights), show 1 decimal place
+    if (num < 10 && num % 1 !== 0) {
+      return num.toFixed(1)
+    }
+    // For larger values or whole numbers, keep as is
     return Number.isInteger(num) ? num.toString() : num.toFixed(1)
   }
 
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      setRefreshing(true)
+      console.log("Loading analytics data from database...")
+
+      // Load transaction data from database with detailed logging
+      console.log("Fetching transactions from database...")
+      const transactionData = await getTransactions()
+      console.log(`Successfully loaded ${transactionData.length} transactions from database`)
+      setTransactions(transactionData)
+
+      // Load inventory items from database with detailed logging
+      console.log("Fetching inventory items from database...")
+      const items = await getInventoryItems()
+      console.log(`Successfully loaded ${items.length} inventory items from database`)
+      setInventoryItems(items)
+
+      // Calculate product analytics
+      console.log("Calculating product analytics...")
+      const analytics = calculateProductAnalytics(items, transactionData)
+      setProductAnalytics(analytics)
+      console.log(`Calculated analytics for ${analytics.length} products`)
+
+      // Calculate popular items
+      console.log("Calculating popular items...")
+      const itemCounts: Record<string, number> = {}
+      transactionData.forEach((transaction) => {
+        if (transaction.type === "out") {
+          if (!itemCounts[transaction.itemName]) {
+            itemCounts[transaction.itemName] = 0
+          }
+          itemCounts[transaction.itemName] += transaction.quantity
+        }
+      })
+
+      const sortedItems = Object.entries(itemCounts)
+        .map(([name, count]) => ({
+          name,
+          value: count,
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10)
+
+      setPopularItems(sortedItems)
+      console.log(`Calculated ${sortedItems.length} popular items`)
+
+      // Calculate daily visits
+      console.log("Calculating daily visits...")
+      const visitsByDate: Record<string, Set<string>> = {}
+      transactionData.forEach((transaction) => {
+        if (transaction.type === "out") {
+          const date = new Date(transaction.timestamp).toLocaleDateString()
+          if (!visitsByDate[date]) {
+            visitsByDate[date] = new Set()
+          }
+          visitsByDate[date].add(transaction.user)
+        }
+      })
+
+      const dailyVisitData = Object.entries(visitsByDate)
+        .map(([date, users]) => ({ date, count: users.size }))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(-7) // Last 7 days
+
+      setDailyVisits(dailyVisitData)
+      console.log(`Calculated daily visits for ${dailyVisitData.length} days`)
+
+      // Calculate category distribution
+      console.log("Calculating category distribution...")
+      const categoryCounts: Record<string, number> = {}
+
+      transactionData.forEach((transaction) => {
+        if (transaction.type === "out") {
+          const item = items.find((i) => i.id === transaction.itemId)
+          if (item) {
+            if (!categoryCounts[item.category]) {
+              categoryCounts[item.category] = 0
+            }
+            categoryCounts[item.category] += transaction.quantity
+          }
+        }
+      })
+
+      const categoryData = Object.entries(categoryCounts).map(([name, value]) => ({ name, value }))
+      setCategoryDistribution(categoryData)
+      console.log(`Calculated distribution for ${categoryData.length} categories`)
+
+      // Calculate busiest days of the week
+      console.log("Calculating busiest days of the week...")
+      const dayOfWeekCounts: Record<string, number> = {
+        Sunday: 0,
+        Monday: 0,
+        Tuesday: 0,
+        Wednesday: 0,
+        Thursday: 0,
+        Friday: 0,
+        Saturday: 0,
+      }
+
+      transactionData.forEach((transaction) => {
+        if (transaction.type === "out") {
+          try {
+            const date = new Date(transaction.timestamp)
+            const dayOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][
+              date.getDay()
+            ]
+            dayOfWeekCounts[dayOfWeek] += 1
+          } catch (err) {
+            console.error("Error processing transaction date:", transaction.timestamp, err)
+          }
+        }
+      })
+
+      const busiestDaysData = Object.entries(dayOfWeekCounts)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => {
+          // Sort by day of week order
+          const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+          return days.indexOf(a.name) - days.indexOf(b.name)
+        })
+
+      setBusiestDays(busiestDaysData)
+      console.log("Calculated busiest days of the week")
+
+      // Calculate busiest times of day
+      console.log("Calculating busiest times of day...")
+      const timeOfDayCounts: Record<string, number> = {
+        "Morning (6-11AM)": 0,
+        "Afternoon (12-5PM)": 0,
+        "Evening (6-11PM)": 0,
+        "Night (12-5AM)": 0,
+      }
+
+      transactionData.forEach((transaction) => {
+        if (transaction.type === "out") {
+          try {
+            const date = new Date(transaction.timestamp)
+            const hour = date.getHours()
+
+            if (hour >= 6 && hour < 12) {
+              timeOfDayCounts["Morning (6-11AM)"] += 1
+            } else if (hour >= 12 && hour < 18) {
+              timeOfDayCounts["Afternoon (12-5PM)"] += 1
+            } else if (hour >= 18 && hour < 24) {
+              timeOfDayCounts["Evening (6-11PM)"] += 1
+            } else {
+              timeOfDayCounts["Night (12-5AM)"] += 1
+            }
+          } catch (err) {
+            console.error("Error processing transaction time:", transaction.timestamp, err)
+          }
+        }
+      })
+
+      const busiestTimesData = Object.entries(timeOfDayCounts)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => {
+          // Sort by time of day order
+          const times = ["Morning (6-11AM)", "Afternoon (12-5PM)", "Evening (6-11PM)", "Night (12-5AM)"]
+          return times.indexOf(a.name) - times.indexOf(b.name)
+        })
+
+      setBusiestTimes(busiestTimesData)
+      console.log("Calculated busiest times of day")
+
+      // Calculate specific food distribution with categories
+      console.log("Calculating specific food distribution...")
+      const specificFoodCounts: Record<string, { count: number; category: string }> = {}
+
+      transactionData.forEach((transaction) => {
+        if (transaction.type === "out") {
+          if (!specificFoodCounts[transaction.itemName]) {
+            // Find the category for this item
+            const item = items.find((item) => item.id === transaction.itemId)
+            specificFoodCounts[transaction.itemName] = {
+              count: 0,
+              category: item?.category || "unknown",
+            }
+          }
+          specificFoodCounts[transaction.itemName].count += transaction.quantity
+        }
+      })
+
+      const specificFoodData = Object.entries(specificFoodCounts)
+        .map(([name, data]) => ({
+          name,
+          value: data.count,
+          category: data.category,
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 15) // Top 15 items
+
+      setSpecificFoodDistribution(specificFoodData)
+      console.log(`Calculated distribution for ${specificFoodData.length} specific food items`)
+
+      // Initialize filtered transactions
+      console.log("Filtering transactions by date range...")
+      filterTransactionsByDateRange(transactionData, analytics, timeRange, dateFrom, dateTo)
+      console.log("Analytics data loaded successfully")
+    } catch (error) {
+      console.error("Error loading analytics data:", error)
+      toast({
+        title: "Error loading analytics",
+        description: "Failed to load analytics data. Please check the console for details.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  // Calculate product analytics from inventory items and transactions
+  const calculateProductAnalytics = (items: InventoryItem[], transactions: Transaction[]) => {
+    return items.map((item) => {
+      // Get transactions for this item
+      const itemTransactions = transactions.filter((t) => t.itemId === item.id)
+
+      // Calculate total sold
+      const totalSold = itemTransactions.filter((t) => t.type === "out").reduce((sum, t) => sum + t.quantity, 0)
+
+      // Calculate total restocked
+      const totalRestocked = itemTransactions.filter((t) => t.type === "in").reduce((sum, t) => sum + t.quantity, 0)
+
+      // Calculate popularity score (simple version)
+      const popularityScore = totalSold > 0 ? totalSold : 0
+
+      // Calculate turnover rate
+      const turnoverRate = totalSold / (item.quantity || 1)
+
+      return {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        currentStock: item.quantity,
+        totalSold,
+        totalRestocked,
+        popularityScore,
+        turnoverRate,
+      }
+    })
+  }
+
+  // Get category analytics data
+  const getCategoryAnalytics = (categoryId: string) => {
+    // Filter product analytics by category
+    return productAnalytics.filter((product) => product.category === categoryId)
+  }
+
   useEffect(() => {
-    // Load transaction data
-    const transactionData = getTransactions()
-    setTransactions(transactionData)
-
-    // Load inventory items
-    const items = getInventoryItems()
-    setInventoryItems(items)
-
-    // Get product analytics data
-    const analytics = getProductAnalytics()
-    setProductAnalytics(analytics)
-
-    // Calculate popular items
-    const itemCounts: Record<string, number> = {}
-    transactionData.forEach((transaction) => {
-      if (transaction.type === "out") {
-        if (!itemCounts[transaction.itemName]) {
-          itemCounts[transaction.itemName] = 0
-        }
-        itemCounts[transaction.itemName] += transaction.quantity
-      }
-    })
-
-    const sortedItems = Object.entries(itemCounts)
-      .map(([name, count]) => ({
-        name,
-        value: count,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10)
-
-    setPopularItems(sortedItems)
-
-    // Calculate daily visits
-    const visitsByDate: Record<string, Set<string>> = {}
-    transactionData.forEach((transaction) => {
-      if (transaction.type === "out") {
-        const date = new Date(transaction.timestamp).toLocaleDateString()
-        if (!visitsByDate[date]) {
-          visitsByDate[date] = new Set()
-        }
-        visitsByDate[date].add(transaction.user)
-      }
-    })
-
-    const dailyVisitData = Object.entries(visitsByDate)
-      .map(([date, users]) => ({ date, count: users.size }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(-7) // Last 7 days
-
-    setDailyVisits(dailyVisitData)
-
-    // Calculate category distribution
-    const categoryCounts: Record<string, number> = {}
-
-    transactionData.forEach((transaction) => {
-      if (transaction.type === "out") {
-        const item = items.find((i) => i.id === transaction.itemId)
-        if (item) {
-          if (!categoryCounts[item.category]) {
-            categoryCounts[item.category] = 0
-          }
-          categoryCounts[item.category] += transaction.quantity
-        }
-      }
-    })
-
-    const categoryData = Object.entries(categoryCounts).map(([name, value]) => ({ name, value }))
-    setCategoryDistribution(categoryData)
-
-    // Calculate busiest days of the week
-    const dayOfWeekCounts: Record<string, number> = {
-      Sunday: 0,
-      Monday: 0,
-      Tuesday: 0,
-      Wednesday: 0,
-      Thursday: 0,
-      Friday: 0,
-      Saturday: 0,
-    }
-
-    transactionData.forEach((transaction) => {
-      if (transaction.type === "out") {
-        const date = new Date(transaction.timestamp)
-        const dayOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][date.getDay()]
-        dayOfWeekCounts[dayOfWeek] += 1
-      }
-    })
-
-    const busiestDaysData = Object.entries(dayOfWeekCounts)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => {
-        // Sort by day of week order
-        const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        return days.indexOf(a.name) - days.indexOf(b.name)
-      })
-
-    setBusiestDays(busiestDaysData)
-
-    // Calculate busiest times of day
-    const timeOfDayCounts: Record<string, number> = {
-      "Morning (6-11AM)": 0,
-      "Afternoon (12-5PM)": 0,
-      "Evening (6-11PM)": 0,
-      "Night (12-5AM)": 0,
-    }
-
-    transactionData.forEach((transaction) => {
-      if (transaction.type === "out") {
-        const date = new Date(transaction.timestamp)
-        const hour = date.getHours()
-
-        if (hour >= 6 && hour < 12) {
-          timeOfDayCounts["Morning (6-11AM)"] += 1
-        } else if (hour >= 12 && hour < 18) {
-          timeOfDayCounts["Afternoon (12-5PM)"] += 1
-        } else if (hour >= 18 && hour < 24) {
-          timeOfDayCounts["Evening (6-11PM)"] += 1
-        } else {
-          timeOfDayCounts["Night (12-5AM)"] += 1
-        }
-      }
-    })
-
-    const busiestTimesData = Object.entries(timeOfDayCounts)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => {
-        // Sort by time of day order
-        const times = ["Morning (6-11AM)", "Afternoon (12-5PM)", "Evening (6-11PM)", "Night (12-5AM)"]
-        return times.indexOf(a.name) - times.indexOf(b.name)
-      })
-
-    setBusiestTimes(busiestTimesData)
-
-    // Calculate specific food distribution with categories
-    const specificFoodCounts: Record<string, { count: number; category: string }> = {}
-
-    transactionData.forEach((transaction) => {
-      if (transaction.type === "out") {
-        if (!specificFoodCounts[transaction.itemName]) {
-          // Find the category for this item
-          const item = items.find((item) => item.id === transaction.itemId)
-          specificFoodCounts[transaction.itemName] = {
-            count: 0,
-            category: item?.category || "unknown",
-          }
-        }
-        specificFoodCounts[transaction.itemName].count += transaction.quantity
-      }
-    })
-
-    const specificFoodData = Object.entries(specificFoodCounts)
-      .map(([name, data]) => ({
-        name,
-        value: data.count,
-        category: data.category,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 15) // Top 15 items
-
-    setSpecificFoodDistribution(specificFoodData)
-
-    // Initialize filtered transactions
-    filterTransactionsByDateRange(transactionData, analytics, timeRange, dateFrom, dateTo)
+    loadData()
   }, [])
 
   // Function to filter transactions by date range
@@ -536,6 +632,14 @@ export default function AnalyticsPage() {
     return categoryColors[category] || "bg-gray-400"
   }
 
+  if (loading && !refreshing) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Hero Banner */}
@@ -544,9 +648,9 @@ export default function AnalyticsPage() {
           <div className="px-6 md:px-10">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white">Price & Usage Analytics</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-white">Analytics Dashboard</h1>
                 <p className="text-lg text-primary mt-2">
-                  Analyze item prices and usage patterns to make better purchasing decisions.
+                  Track inventory, usage patterns, and distribution statistics
                 </p>
               </div>
             </div>
@@ -618,36 +722,45 @@ export default function AnalyticsPage() {
           )}
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button disabled={isGeneratingReport}>
-              <Download className="mr-2 h-4 w-4" />
-              {isGeneratingReport ? "Generating..." : "Download Report"}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem onClick={() => generateReport("product-analytics")}>
-              <FileText className="mr-2 h-4 w-4" />
-              Product Analytics
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => generateReport("category-distribution")}>
-              <FileText className="mr-2 h-4 w-4" />
-              Category Distribution
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => generateReport("popular-items")}>
-              <FileText className="mr-2 h-4 w-4" />
-              Popular Items
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => generateReport("transactions")}>
-              <FileText className="mr-2 h-4 w-4" />
-              Transaction Log
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => generateReport("cost-analytics")}>
-              <FileText className="mr-2 h-4 w-4" />
-              Cost Analytics
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex gap-2">
+          <SeedAnalyticsData />
+
+          <Button onClick={loadData} variant="outline" disabled={refreshing} className="flex items-center gap-2">
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing..." : "Refresh Data"}
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button disabled={isGeneratingReport}>
+                <Download className="mr-2 h-4 w-4" />
+                {isGeneratingReport ? "Generating..." : "Download Report"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => generateReport("product-analytics")}>
+                <FileText className="mr-2 h-4 w-4" />
+                Product Analytics
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => generateReport("category-distribution")}>
+                <FileText className="mr-2 h-4 w-4" />
+                Category Distribution
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => generateReport("popular-items")}>
+                <FileText className="mr-2 h-4 w-4" />
+                Popular Items
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => generateReport("transactions")}>
+                <FileText className="mr-2 h-4 w-4" />
+                Transaction Log
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => generateReport("cost-analytics")}>
+                <FileText className="mr-2 h-4 w-4" />
+                Cost Analytics
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
@@ -1005,7 +1118,9 @@ export default function AnalyticsPage() {
                             onClick={() => handleCategoryClick(category)}
                           >
                             <div
-                              className={`mx-auto w-16 h-16 rounded-full ${getCategoryColor(category)} flex items-center justify-center mb-2`}
+                              className={`mx-auto w-16 h-16 rounded-full ${getCategoryColor(
+                                category,
+                              )} flex items-center justify-center mb-2`}
                             >
                               <span className="text-white font-bold">{formatNumber(count)}</span>
                             </div>

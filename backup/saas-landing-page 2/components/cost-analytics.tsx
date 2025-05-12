@@ -72,27 +72,37 @@ export function PriceAndUsageAnalytics() {
   const loadData = async () => {
     try {
       setLoading(true)
+      console.log("Loading cost analytics data...")
 
-      // Get real data
+      // Get real data with detailed logging
+      console.log("Fetching inventory items from database...")
       const items = await getInventoryItems()
-      const txns = await getTransactions()
-
+      console.log(`Successfully loaded ${items.length} inventory items`)
       setInventoryItems(items)
+
+      console.log("Fetching transactions from database...")
+      const txns = await getTransactions()
+      console.log(`Successfully loaded ${txns.length} transactions`)
       setTransactions(txns)
 
       // Calculate total cost
+      console.log("Calculating total cost...")
       const total = items.reduce((sum, item) => {
         const cost = item.cost || 0
         return sum + cost * item.quantity
       }, 0)
       setTotalCost(total)
+      console.log(`Total cost: ${total}`)
 
       // Calculate average cost per item
+      console.log("Calculating average cost per item...")
       const totalItems = items.reduce((sum, item) => sum + item.quantity, 0)
       const avg = totalItems > 0 ? total / totalItems : 0
       setAverageCost(avg)
+      console.log(`Average cost: ${avg}`)
 
       // Calculate cost by category
+      console.log("Calculating cost by category...")
       const categoryCosts: Record<string, number> = {}
       items.forEach((item) => {
         const cost = item.cost || 0
@@ -107,8 +117,10 @@ export function PriceAndUsageAnalytics() {
         .sort((a, b) => b.value - a.value)
 
       setCategoryData(categoryChartData)
+      console.log(`Calculated costs for ${categoryChartData.length} categories`)
 
       // Calculate top cost items
+      console.log("Calculating top cost items...")
       const itemCosts = items
         .filter((item) => item.cost !== undefined && item.cost > 0)
         .map((item) => ({
@@ -120,8 +132,10 @@ export function PriceAndUsageAnalytics() {
         .slice(0, 10)
 
       setTopItems(itemCosts)
+      console.log(`Calculated costs for ${itemCosts.length} top items`)
 
       // Calculate usage frequency
+      console.log("Calculating usage frequency...")
       const usageFrequencyMap: Record<string, number> = {}
       const outTransactions = txns.filter((t) => t.type === "out")
 
@@ -135,10 +149,13 @@ export function PriceAndUsageAnalytics() {
       setUsageFrequencyMap(usageFrequencyMap)
 
       // Calculate total usage
+      console.log("Calculating total usage...")
       const totalUsageCount = outTransactions.reduce((sum, t) => sum + t.quantity, 0)
       setTotalUsage(totalUsageCount)
+      console.log(`Total usage: ${totalUsageCount}`)
 
       // Map to items and sort by usage
+      console.log("Mapping items by usage...")
       const usageData = items
         .map((item) => ({
           name: truncateText(item.name, 15),
@@ -149,8 +166,10 @@ export function PriceAndUsageAnalytics() {
         .slice(0, 10)
 
       setUsageFrequencyData(usageData)
+      console.log(`Mapped ${usageData.length} items by usage`)
 
       // Calculate popularity-to-cost ratio
+      console.log("Calculating popularity-to-cost ratio...")
       const popularityToCostItems = items
         .filter((item) => item.cost !== undefined && item.cost > 0)
         .map((item) => {
@@ -169,15 +188,20 @@ export function PriceAndUsageAnalytics() {
         .sort((a, b) => b.value - a.value) // Sort by highest ratio first (most popular per dollar)
 
       setPopularityToCostData(popularityToCostItems)
+      console.log(`Calculated popularity-to-cost ratio for ${popularityToCostItems.length} items`)
 
       // Calculate average popularity-to-cost ratio
+      console.log("Calculating average popularity-to-cost ratio...")
       const validRatios = popularityToCostItems.filter((item) => item.value > 0)
       const avgRatio =
         validRatios.length > 0 ? validRatios.reduce((sum, item) => sum + item.value, 0) / validRatios.length : 0
       setAveragePopularityToCost(avgRatio)
+      console.log(`Average popularity-to-cost ratio: ${avgRatio}`)
 
       // Generate purchase recommendations
+      console.log("Generating purchase recommendations...")
       generatePurchaseRecommendations(items, txns, avg, usageFrequencyMap)
+      console.log("Purchase recommendations generated")
     } catch (error) {
       console.error("Error loading cost analytics data:", error)
       // Reset states on error

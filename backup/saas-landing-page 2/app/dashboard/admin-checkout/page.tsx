@@ -13,6 +13,7 @@ import { getSupabaseClient } from "@/lib/supabase"
 import { Label } from "@/components/ui/label"
 import { processDirectCheckout, getInventoryItems, getCategories } from "@/lib/data-db"
 import { toast } from "@/components/ui/use-toast"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 
 export default function AdminCheckoutPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -28,6 +29,11 @@ export default function AdminCheckoutPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
   const [recentCheckouts, setRecentCheckouts] = useState<any[]>([])
+
+  // New state for quantity dialog
+  const [quantityDialogOpen, setQuantityDialogOpen] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
+  const [customQuantity, setCustomQuantity] = useState("")
 
   useEffect(() => {
     // Check if user is admin/staff
@@ -98,6 +104,15 @@ export default function AdminCheckoutPage() {
   }, [items, searchQuery, selectedCategory])
 
   const addToCart = (item: InventoryItem) => {
+    // For weighed items, open the quantity dialog
+    if (item.isWeighed) {
+      setSelectedItem(item)
+      setCustomQuantity("")
+      setQuantityDialogOpen(true)
+      return
+    }
+
+    // For non-weighed items, proceed as before
     const existingItem = cart.find((cartItem) => cartItem.item.id === item.id)
 
     if (existingItem) {
@@ -113,11 +128,71 @@ export default function AdminCheckoutPage() {
     }
   }
 
+  const handleAddCustomQuantity = () => {
+    if (!selectedItem) return
+
+    // Validate the quantity
+    const quantity = Number.parseFloat(customQuantity)
+    if (isNaN(quantity) || quantity <= 0) {
+      toast({
+        title: "Invalid quantity",
+        description: "Please enter a valid positive number",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (quantity > selectedItem.quantity) {
+      toast({
+        title: "Quantity too large",
+        description: `Only ${selectedItem.quantity} ${selectedItem.unit || "items"} available`,
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Add to cart with custom quantity
+    const existingItem = cart.find((cartItem) => cartItem.item.id === selectedItem.id)
+
+    if (existingItem) {
+      // Update quantity if already in cart
+      setCart(
+        cart.map((cartItem) =>
+          cartItem.item.id === selectedItem.id ? { ...cartItem, quantity: cartItem.quantity + quantity } : cartItem,
+        ),
+      )
+    } else {
+      // Add new item to cart
+      setCart([...cart, { item: selectedItem, quantity }])
+    }
+
+    setQuantityDialogOpen(false)
+  }
+
   const removeFromCart = (itemId: string) => {
     const existingItem = cart.find((cartItem) => cartItem.item.id === itemId)
 
     if (existingItem && existingItem.quantity > 1) {
-      // Decrement quantity
+      // For weighed items with decimal quantities, we need special handling
+      if (existingItem.item.isWeighed) {
+        // If quantity is less than 1, remove the item
+        if (existingItem.quantity <= 1) {
+          setCart(cart.filter((cartItem) => cartItem.item.id !== itemId))
+          return
+        }
+
+        // Otherwise, decrement by 0.1 for weighed items
+        setCart(
+          cart.map((cartItem) =>
+            cartItem.item.id === itemId
+              ? { ...cartItem, quantity: Math.round((cartItem.quantity - 0.1) * 10) / 10 }
+              : cartItem,
+          ),
+        )
+        return
+      }
+
+      // For non-weighed items, decrement by 1
       setCart(
         cart.map((cartItem) =>
           cartItem.item.id === itemId ? { ...cartItem, quantity: cartItem.quantity - 1 } : cartItem,
@@ -215,6 +290,16 @@ export default function AdminCheckoutPage() {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleString()
+  }
+
+  // Format quantity for display
+  const formatQuantity = (quantity: number, unit: string | null | undefined) => {
+    if (unit === "kg" || unit === "lb") {
+      // For weight units, show up to 1 decimal place
+      return quantity % 1 === 0 ? quantity.toString() : quantity.toFixed(1)
+    }
+    // For items, show whole numbers
+    return Math.round(quantity).toString()
   }
 
   return (
@@ -329,6 +414,7 @@ export default function AdminCheckoutPage() {
                             </Badge>
                             <p className="text-sm">
                               Available: <span className="font-medium">{item.quantity}</span>
+                              {item.unit && <span> {item.unit}</span>}
                             </p>
                             {item.cost && (
                               <p className="text-sm text-muted-foreground">
@@ -382,7 +468,7 @@ export default function AdminCheckoutPage() {
                           <td className="py-2 px-4">{checkout.user_id}</td>
                           <td className="py-2 px-4">{checkout.item_name}</td>
                           <td className="py-2 px-4 text-right">
-                            {checkout.quantity} {checkout.unit || "items"}
+                            {formatQuantity(checkout.quantity, checkout.unit)} {checkout.unit || "items"}
                           </td>
                         </tr>
                       ))}
@@ -433,7 +519,7 @@ export default function AdminCheckoutPage() {
                       <div>
                         <p className="font-medium">{item.name}</p>
                         <p className="text-sm text-muted-foreground">
-                          {quantity} {item.unit || "item"}
+                          {formatQuantity(quantity, item.unit)} {item.unit || "item"}
                           {quantity !== 1 && !item.unit && "s"}
                         </p>
                       </div>
@@ -446,7 +532,7 @@ export default function AdminCheckoutPage() {
                         >
                           <Minus className="h-3 w-3" />
                         </Button>
-                        <span className="w-4 text-center">{quantity}</span>
+                        <span className="w-4 text-center">{formatQuantity(quantity, item.unit)}</span>
                         <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => addToCart(item)}>
                           <Plus className="h-3 w-3" />
                         </Button>
@@ -483,6 +569,42 @@ export default function AdminCheckoutPage() {
       <div className="text-xs text-muted-foreground text-right">
         Last database fetch: {lastRefreshed.toLocaleTimeString()}
       </div>
+
+      {/* Quantity Dialog for Weighed Items */}
+      <Dialog open={quantityDialogOpen} onOpenChange={setQuantityDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Enter Quantity</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="quantity">Quantity ({selectedItem?.unit})</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="quantity"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max={selectedItem?.quantity}
+                  placeholder={`Enter ${selectedItem?.unit} amount`}
+                  value={customQuantity}
+                  onChange={(e) => setCustomQuantity(e.target.value)}
+                />
+                <span>{selectedItem?.unit}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Available: {selectedItem?.quantity} {selectedItem?.unit}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuantityDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddCustomQuantity}>Add to Cart</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
