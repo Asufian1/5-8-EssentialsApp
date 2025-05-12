@@ -21,6 +21,7 @@ import {
   User,
   Barcode,
   Database,
+  ShoppingBag,
 } from "lucide-react"
 import { createClient } from "@supabase/supabase-js"
 
@@ -223,6 +224,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               <Package className="mr-2 h-4 w-4" />
               Inventory
+            </Link>
+            <Link
+              href="/dashboard/admin-checkout"
+              className={`flex items-center rounded-md px-3 py-2 text-sm ${
+                pathname === "/dashboard/admin-checkout"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              }`}
+            >
+              <ShoppingBag className="mr-2 h-4 w-4" />
+              Take Out Items
             </Link>
             <Link
               href="/dashboard/orders"

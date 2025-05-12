@@ -6,26 +6,15 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import {
-  Search,
-  ShoppingCart,
-  Plus,
-  Minus,
-  Scale,
-  RefreshCw,
-  AlertTriangle,
-  UserCheck,
-  CheckCircle,
-} from "lucide-react"
+import { Search, Plus, Minus, Scale, RefreshCw, AlertTriangle, UserCheck, CheckCircle, ShoppingBag } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { InventoryItem } from "@/lib/types"
 import { getSupabaseClient } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
 import { Label } from "@/components/ui/label"
-import { processDirectCheckout } from "@/lib/data-db"
+import { processDirectCheckout, getInventoryItems, getCategories } from "@/lib/data-db"
 import { toast } from "@/components/ui/use-toast"
 
-export default function TakeItemsPage() {
+export default function AdminCheckoutPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -35,18 +24,18 @@ export default function TakeItemsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
-  const [isAdminMode, setIsAdminMode] = useState(false)
   const [studentId, setStudentId] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
-
-  const router = useRouter()
+  const [recentCheckouts, setRecentCheckouts] = useState<any[]>([])
 
   useEffect(() => {
     // Check if user is admin/staff
     const userType = localStorage.getItem("userType")
-    if (userType === "staff" || userType === "admin") {
-      setIsAdminMode(true)
+    if (userType !== "staff" && userType !== "admin") {
+      // Redirect non-admin users
+      window.location.href = "/login"
+      return
     }
 
     const loadData = async () => {
@@ -54,53 +43,37 @@ export default function TakeItemsPage() {
         setIsLoading(true)
         setError("")
 
-        // Load inventory items directly from Supabase
-        const supabase = getSupabaseClient()
-
-        // Fetch inventory items
-        const { data: inventoryData, error: inventoryError } = await supabase
-          .from("inventory_items")
-          .select("*, categories(name)")
-          .order("name")
-
-        if (inventoryError) {
-          throw inventoryError
-        }
-
-        // Transform the data to match our InventoryItem type
-        const inventoryItems: InventoryItem[] = inventoryData.map((item) => ({
-          id: item.id,
-          name: item.name,
-          category: item.category_id,
-          categoryName: item.categories?.name,
-          quantity: Number(item.quantity),
-          studentLimit: Number(item.student_limit),
-          limitDuration: item.limit_duration,
-          limitDurationMinutes: item.limit_duration_minutes,
-          unit: item.unit as "item" | "kg" | "lb" | null,
-          isWeighed: item.is_weighed,
-          hasLimit: item.has_limit,
-          cost: item.cost ? Number(item.cost) : undefined,
-          supplier: item.supplier || undefined,
-        }))
-
+        // Load inventory items using our existing function
+        const inventoryItems = await getInventoryItems()
         setItems(inventoryItems)
         setFilteredItems(inventoryItems)
 
-        // Fetch categories
-        const { data: categoriesData, error: categoriesError } = await supabase
-          .from("categories")
-          .select("*")
-          .order("name")
-
-        if (categoriesError) {
-          throw categoriesError
-        }
-
+        // Load categories using our existing function
+        const categoriesData = await getCategories()
         setCategories(categoriesData)
+
+        // Fetch recent checkouts
+        try {
+          const supabase = getSupabaseClient()
+          if (supabase) {
+            const { data: checkoutsData, error: checkoutsError } = await supabase
+              .from("transactions")
+              .select("*")
+              .eq("type", "out")
+              .order("timestamp", { ascending: false })
+              .limit(5)
+
+            if (!checkoutsError && checkoutsData) {
+              setRecentCheckouts(checkoutsData)
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching recent checkouts:", error)
+          // Don't set main error since this is not critical
+        }
       } catch (error) {
         console.error("Error loading data:", error)
-        setError("Failed to load items from the database")
+        setError("Failed to load items from the database. Please try again later.")
       } finally {
         setIsLoading(false)
       }
@@ -185,27 +158,6 @@ export default function TakeItemsPage() {
     setLastRefreshed(new Date())
   }
 
-  const handleCheckout = () => {
-    if (isAdminMode && studentId.trim()) {
-      // Process direct checkout for admin
-      handleDirectCheckout()
-    } else {
-      // Regular checkout flow - save cart to localStorage for the checkout page
-      localStorage.setItem(
-        "cart",
-        JSON.stringify(
-          cart.map(({ item, quantity }) => ({
-            ...item,
-            quantity,
-          })),
-        ),
-      )
-
-      // Navigate to checkout page
-      router.push("/dashboard/checkout")
-    }
-  }
-
   const handleDirectCheckout = async () => {
     if (!studentId.trim()) {
       setError("Please enter a student ID")
@@ -260,14 +212,19 @@ export default function TakeItemsPage() {
     }
   }
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleString()
+  }
+
   return (
     <div className="space-y-6">
       {/* Hero Banner */}
       <div className="relative rounded-lg overflow-hidden h-40 bg-secondary">
         <div className="absolute inset-0 flex items-center">
           <div className="px-6 md:px-10">
-            <h1 className="text-2xl md:text-3xl font-bold text-white">Browse Food Items</h1>
-            <p className="text-lg text-primary mt-2">Select items to add to your cart</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">Admin Direct Checkout</h1>
+            <p className="text-lg text-primary mt-2">Process items for students directly</p>
           </div>
         </div>
       </div>
@@ -290,8 +247,8 @@ export default function TakeItemsPage() {
 
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold">Available Items</h2>
-          <p className="text-muted-foreground">Browse and select items from our inventory</p>
+          <h2 className="text-2xl font-bold">Admin Checkout</h2>
+          <p className="text-muted-foreground">Process items for students without creating orders</p>
         </div>
         <Button variant="outline" onClick={refreshData} className="flex items-center gap-2">
           <RefreshCw className="h-4 w-4 mr-1" />
@@ -399,37 +356,75 @@ export default function TakeItemsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Recent Checkouts */}
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="text-xl">Recent Checkouts</CardTitle>
+              <CardDescription>Recently processed checkouts</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {recentCheckouts.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="py-2 px-4 text-left">Time</th>
+                        <th className="py-2 px-4 text-left">Student</th>
+                        <th className="py-2 px-4 text-left">Item</th>
+                        <th className="py-2 px-4 text-right">Quantity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentCheckouts.map((checkout) => (
+                        <tr key={checkout.id} className="border-b hover:bg-muted/50">
+                          <td className="py-2 px-4">{formatDate(checkout.timestamp)}</td>
+                          <td className="py-2 px-4">{checkout.user_id}</td>
+                          <td className="py-2 px-4">{checkout.item_name}</td>
+                          <td className="py-2 px-4 text-right">
+                            {checkout.quantity} {checkout.unit || "items"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-muted-foreground">No recent checkouts</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         <div>
           <Card className="sticky top-4">
             <CardHeader>
               <CardTitle className="flex items-center">
-                <ShoppingCart className="h-5 w-5 mr-2" />
-                Your Cart
+                <ShoppingBag className="h-5 w-5 mr-2" />
+                Admin Checkout
               </CardTitle>
-              <CardDescription>Items you've selected</CardDescription>
+              <CardDescription>Process items for a student</CardDescription>
             </CardHeader>
             <CardContent>
-              {isAdminMode && (
-                <div className="mb-4 space-y-4">
-                  <div className="flex items-center space-x-2">
-                    <UserCheck className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Admin Direct Checkout</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="studentId">Student ID</Label>
-                    <Input
-                      id="studentId"
-                      placeholder="Enter student ID"
-                      value={studentId}
-                      onChange={(e) => setStudentId(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">Enter student ID to process direct checkout</p>
-                  </div>
+              <div className="mb-4 space-y-4">
+                <div className="flex items-center space-x-2">
+                  <UserCheck className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">Direct Checkout</span>
                 </div>
-              )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="studentId">Student ID</Label>
+                  <Input
+                    id="studentId"
+                    placeholder="Enter student ID"
+                    value={studentId}
+                    onChange={(e) => setStudentId(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Enter student ID to process direct checkout</p>
+                </div>
+              </div>
 
               {cart.length > 0 ? (
                 <div className="space-y-4">
@@ -468,17 +463,15 @@ export default function TakeItemsPage() {
             <CardFooter>
               <Button
                 className="w-full"
-                disabled={cart.length === 0 || (isAdminMode && !studentId.trim()) || isProcessing}
-                onClick={handleCheckout}
+                disabled={cart.length === 0 || !studentId.trim() || isProcessing}
+                onClick={handleDirectCheckout}
               >
                 {isProcessing ? (
                   <span className="flex items-center gap-2">
                     <span className="animate-spin">⏳</span> Processing...
                   </span>
-                ) : isAdminMode ? (
-                  "Process Direct Checkout"
                 ) : (
-                  "Proceed to Checkout"
+                  "Process Direct Checkout"
                 )}
               </Button>
             </CardFooter>
