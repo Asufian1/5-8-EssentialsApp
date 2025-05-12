@@ -9,7 +9,6 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Retriever's Essentials",
   description: "UMBC Food Pantry Inventory Management System",
-    generator: 'v0.dev'
 }
 
 export default function RootLayout({

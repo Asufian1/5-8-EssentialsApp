@@ -1,483 +1,459 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { BarcodeScanner } from "@/components/barcode-scanner"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Barcode, Search, Plus, RefreshCw, ArrowLeft } from "lucide-react"
-import { getInventoryItems, addInventoryItem, updateInventoryItem, formatQuantityWithUnit } from "@/lib/data"
-import type { InventoryItem } from "@/lib/types"
-import Link from "next/link"
+import { BarcodeScanner } from "@/components/barcode-scanner"
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Barcode } from "lucide-react"
+import { supabaseConfig } from "@/lib/supabase-config"
+
+// Direct API approach
+const API_URL = supabaseConfig.supabaseUrl
+const API_KEY = supabaseConfig.supabaseAnonKey
+
+// Simple fetch wrapper
+async function fetchSupabase(endpoint: string, options: RequestInit = {}) {
+  const url = `${API_URL}${endpoint}`
+  const headers = {
+    ...options.headers,
+    apikey: API_KEY,
+    "Content-Type": "application/json",
+    Prefer: "return=representation",
+  }
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} - ${JSON.stringify(data)}`)
+    }
+
+    return data
+  } catch (error) {
+    console.error(`Fetch error for ${url}:`, error)
+    throw error
+  }
+}
 
 export default function BarcodeScanPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const mode = searchParams.get("mode") || "search"
-
+  // Basic state
   const [showScanner, setShowScanner] = useState(false)
   const [barcode, setBarcode] = useState("")
-  const [quantity, setQuantity] = useState(1)
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
-  const [item, setItem] = useState<InventoryItem | null>(null)
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null)
-  const [newItem, setNewItem] = useState<Partial<InventoryItem>>({
-    name: "",
-    id: "", // Using id as barcode
-    category: "essentials",
-    quantity: 1,
-    studentLimit: 1,
-    limitDuration: 7,
-    limitDurationMinutes: 0,
-    unit: "item",
-    isWeighed: false,
+  const [itemName, setItemName] = useState("")
+  const [category, setCategory] = useState("")
+  const [quantity, setQuantity] = useState("1")
+  const [price, setPrice] = useState("0.00")
+  const [isLoading, setIsLoading] = useState(false)
+  const [message, setMessage] = useState<{ type: "success" | "error" | "info" | null; text: string }>({
+    type: null,
+    text: "",
   })
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
+  const [dbConnected, setDbConnected] = useState(false)
+  const [isCheckingConnection, setIsCheckingConnection] = useState(true)
+  const [lastConnectionCheck, setLastConnectionCheck] = useState<Date | null>(null)
 
+  // Load categories on mount
   useEffect(() => {
-    // Load inventory items
-    const items = getInventoryItems()
-    setInventoryItems(items)
+    checkDatabaseConnection()
   }, [])
 
-  const getItemByBarcode = (barcode: string): InventoryItem | null => {
-    return inventoryItems.find((item) => item.id === barcode) || null
+  // Check database connection
+  const checkDatabaseConnection = async () => {
+    setIsCheckingConnection(true)
+
+    try {
+      const data = await fetchSupabase("/rest/v1/categories?select=count")
+      setDbConnected(true)
+      setMessage({
+        type: "success",
+        text: "Database connected successfully!",
+      })
+      loadCategories()
+    } catch (err) {
+      setDbConnected(false)
+      setMessage({
+        type: "error",
+        text: "Exception connecting to database: " + String(err),
+      })
+    } finally {
+      setIsCheckingConnection(false)
+      setLastConnectionCheck(new Date())
+    }
   }
 
+  // Load categories
+  const loadCategories = async () => {
+    try {
+      const data = await fetchSupabase("/rest/v1/categories?select=id,name&order=name")
+      setCategories(data || [])
+    } catch (err) {
+      console.error("Failed to load categories:", err)
+    }
+  }
+
+  // Handle barcode scan - Fixed to prevent refreshing
   const handleScan = (scannedBarcode: string) => {
-    setBarcode(scannedBarcode)
+    console.log("Barcode scanned:", scannedBarcode)
+
+    // Close the scanner first
     setShowScanner(false)
 
-    if (mode === "search" || mode === "update") {
-      const foundItem = getItemByBarcode(scannedBarcode)
-      setItem(foundItem || null)
+    // Set the barcode value
+    setBarcode(scannedBarcode)
 
-      if (!foundItem) {
+    // Look up the item directly instead of triggering a button click
+    lookupItem(scannedBarcode)
+  }
+
+  // Look up item
+  const lookupItem = async (barcodeToLookup: string) => {
+    if (!barcodeToLookup) {
+      setMessage({
+        type: "error",
+        text: "Please enter a barcode to look up.",
+      })
+      return
+    }
+
+    setIsLoading(true)
+    setMessage({ type: "info", text: "Looking up item..." })
+
+    try {
+      const items = await fetchSupabase(`/rest/v1/inventory_items?id=eq.${encodeURIComponent(barcodeToLookup)}`)
+
+      if (!items || items.length === 0) {
         setMessage({
-          text: `No item found with barcode ${scannedBarcode}`,
-          type: "error",
+          type: "info",
+          text: "No item found with this barcode. You can add it as a new item.",
         })
+        setItemName("")
+        setCategory("")
+        setQuantity("1")
+        setPrice("0.00")
       } else {
-        setMessage(null)
+        const data = items[0]
+        setItemName(data.name || "")
+        setCategory(data.category_id || "")
+        setQuantity((data.quantity || 0).toString())
+        setPrice((data.cost || 0).toString())
+        setMessage({
+          type: "success",
+          text: "Item found! You can update it or scan another barcode.",
+        })
       }
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: "Exception looking up item: " + String(err),
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-      if (mode === "update" && foundItem) {
-        setQuantity(1) // Reset quantity for updates
-      }
-    } else if (mode === "add") {
-      // Check if item with this barcode already exists
-      const existingItem = getItemByBarcode(scannedBarcode)
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!barcode || !itemName || !category) {
+      setMessage({
+        type: "error",
+        text: "Please fill in all required fields (barcode, name, and category).",
+      })
+      return
+    }
+
+    setIsLoading(true)
+    setMessage({ type: "info", text: "Saving item..." })
+
+    try {
+      // Check if item exists
+      const existingItems = await fetchSupabase(
+        `/rest/v1/inventory_items?id=eq.${encodeURIComponent(barcode)}&select=id,quantity`,
+      )
+      const existingItem = existingItems.length > 0 ? existingItems[0] : null
 
       if (existingItem) {
-        setMessage({
-          text: `Item with barcode ${scannedBarcode} already exists`,
-          type: "error",
+        // Update existing item
+        const updatedItem = {
+          name: itemName,
+          category_id: category,
+          quantity: Number.parseInt(quantity),
+          cost: Number.parseFloat(price),
+          updated_at: new Date().toISOString(),
+        }
+
+        await fetchSupabase(`/rest/v1/inventory_items?id=eq.${encodeURIComponent(existingItem.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(updatedItem),
         })
-        setItem(existingItem)
+
+        // Create transaction record for update
+        const transaction = {
+          id: `tx-${Date.now()}-${existingItem.id}`,
+          type: "in",
+          item_id: existingItem.id,
+          item_name: itemName,
+          quantity: Number.parseInt(quantity) - (existingItem.quantity || 0),
+          user_id: "admin",
+          timestamp: new Date().toISOString(),
+          cost: Number.parseFloat(price),
+        }
+
+        await fetchSupabase("/rest/v1/transactions", {
+          method: "POST",
+          body: JSON.stringify(transaction),
+        })
+
+        setMessage({
+          type: "success",
+          text: "Item updated successfully!",
+        })
       } else {
-        setNewItem({
-          ...newItem,
-          id: scannedBarcode, // Using id as barcode
+        // Insert new item
+        const newItem = {
+          id: barcode,
+          name: itemName,
+          category_id: category,
+          quantity: Number.parseInt(quantity),
+          cost: Number.parseFloat(price),
+          student_limit: 1,
+          limit_duration: 7,
+          limit_duration_minutes: 0,
+          unit: "item",
+          is_weighed: false,
+          has_limit: true,
+        }
+
+        await fetchSupabase("/rest/v1/inventory_items", {
+          method: "POST",
+          body: JSON.stringify(newItem),
         })
-        setMessage(null)
-      }
-    }
-  }
 
-  const handleManualSearch = () => {
-    if (!barcode.trim()) {
-      setMessage({
-        text: "Please enter a barcode",
-        type: "error",
-      })
-      return
-    }
+        // Create transaction record for new item
+        const transaction = {
+          id: `tx-${Date.now()}-${barcode}`,
+          type: "in",
+          item_id: barcode,
+          item_name: itemName,
+          quantity: Number.parseInt(quantity),
+          user_id: "admin",
+          timestamp: new Date().toISOString(),
+          cost: Number.parseFloat(price),
+        }
 
-    handleScan(barcode)
-  }
+        await fetchSupabase("/rest/v1/transactions", {
+          method: "POST",
+          body: JSON.stringify(transaction),
+        })
 
-  const handleUpdateQuantity = (action: "add" | "remove") => {
-    if (!item) return
-
-    try {
-      const newQuantity = action === "add" ? item.quantity + quantity : item.quantity - quantity
-
-      if (newQuantity < 0) {
         setMessage({
-          text: "Cannot remove more than available quantity",
-          type: "error",
+          type: "success",
+          text: "Item added successfully!",
         })
-        return
       }
 
-      const updatedItem = {
-        ...item,
-        quantity: newQuantity,
-      }
-
-      updateInventoryItem(updatedItem)
-
-      // Refresh inventory items
-      const items = getInventoryItems()
-      setInventoryItems(items)
-
-      // Update the current item
-      setItem(updatedItem)
-
-      setMessage({
-        text: `Successfully ${action === "add" ? "added" : "removed"} ${quantity} ${item.unit || "items"}`,
-        type: "success",
-      })
-    } catch (error) {
-      setMessage({
-        text: "Failed to update quantity",
-        type: "error",
-      })
-    }
-  }
-
-  const handleAddNewItem = () => {
-    if (!newItem.name || !newItem.id) {
-      setMessage({
-        text: "Name and barcode are required",
-        type: "error",
-      })
-      return
-    }
-
-    try {
-      const itemToAdd: InventoryItem = {
-        id: newItem.id,
-        name: newItem.name || "",
-        category: newItem.category || "essentials",
-        quantity: newItem.quantity || 1,
-        studentLimit: newItem.studentLimit || 1,
-        limitDuration: newItem.limitDuration || 7,
-        limitDurationMinutes: newItem.limitDurationMinutes || 0,
-        unit: newItem.unit || "item",
-        isWeighed: newItem.isWeighed || false,
-      }
-
-      addInventoryItem(itemToAdd)
-
-      // Refresh inventory items
-      const items = getInventoryItems()
-      setInventoryItems(items)
-
-      setMessage({
-        text: `Successfully added ${itemToAdd.name} to inventory`,
-        type: "success",
-      })
-
-      // Reset form
-      setNewItem({
-        name: "",
-        id: "",
-        category: "essentials",
-        quantity: 1,
-        studentLimit: 1,
-        limitDuration: 7,
-        limitDurationMinutes: 0,
-        unit: "item",
-        isWeighed: false,
-      })
+      // Clear form for next item
       setBarcode("")
-    } catch (error) {
+      setItemName("")
+      setCategory("")
+      setQuantity("1")
+      setPrice("0.00")
+    } catch (err: any) {
       setMessage({
-        text: "Failed to add item",
         type: "error",
+        text: "Error saving item: " + (err.message || "Unknown error"),
       })
+    } finally {
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="container mx-auto py-6">
-      <div className="flex items-center mb-6">
-        <Link href="/dashboard/inventory">
-          <Button variant="outline" size="sm" className="mr-4">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Inventory
-          </Button>
-        </Link>
-        <h1 className="text-2xl font-bold">Barcode Scanner</h1>
-      </div>
+    <div className="container mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Barcode Scanner</h1>
 
-      <Tabs defaultValue={mode} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 mb-6">
-          <TabsTrigger value="search" onClick={() => router.push("/dashboard/barcode-scan?mode=search")}>
-            <Search className="mr-2 h-4 w-4" />
-            Search
-          </TabsTrigger>
-          <TabsTrigger value="update" onClick={() => router.push("/dashboard/barcode-scan?mode=update")}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Update
-          </TabsTrigger>
-          <TabsTrigger value="add" onClick={() => router.push("/dashboard/barcode-scan?mode=add")}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add
-          </TabsTrigger>
-        </TabsList>
+      {/* Database connection status */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Database Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center">
+            {isCheckingConnection ? (
+              <>
+                <Loader2 className="h-5 w-5 mr-2 animate-spin text-muted-foreground" />
+                <span>Checking database connection...</span>
+              </>
+            ) : dbConnected ? (
+              <>
+                <CheckCircle2 className="h-5 w-5 mr-2 text-green-500" />
+                <span className="text-green-700 dark:text-green-400">
+                  Database connected
+                  {lastConnectionCheck && (
+                    <span className="text-xs ml-2">(Last checked: {lastConnectionCheck.toLocaleTimeString()})</span>
+                  )}
+                </span>
+                <Button size="sm" variant="outline" onClick={checkDatabaseConnection} className="ml-auto">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh Connection
+                </Button>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
+                <span className="text-red-700 dark:text-red-400 mr-4">Database not connected</span>
+                <Button size="sm" variant="outline" onClick={checkDatabaseConnection} className="ml-auto">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry Connection
+                </Button>
+              </>
+            )}
+          </div>
+          {message.type && (
+            <div
+              className={`mt-2 p-2 rounded-md text-sm ${
+                message.type === "error"
+                  ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                  : message.type === "success"
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                    : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+              }`}
+            >
+              {message.text}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-        {showScanner ? (
-          <BarcodeScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
-        ) : (
-          <>
-            <div className="flex items-end gap-4 mb-6">
-              <div className="flex-1">
-                <Label htmlFor="barcode">Barcode</Label>
-                <div className="flex mt-1">
+      {showScanner ? (
+        <BarcodeScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
+      ) : (
+        <div className="grid gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Scan or Enter Barcode</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex space-x-2">
+                <div className="flex-1">
+                  <Label htmlFor="barcode">Barcode</Label>
                   <Input
                     id="barcode"
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
-                    placeholder="Enter barcode"
-                    className="rounded-r-none"
+                    placeholder="Enter or scan barcode"
                   />
-                  <Button onClick={() => setShowScanner(true)} className="rounded-l-none" variant="secondary">
-                    <Barcode className="h-4 w-4" />
+                </div>
+                <div className="flex items-end">
+                  <Button type="button" onClick={() => setShowScanner(true)} disabled={isLoading}>
+                    <Barcode className="h-4 w-4 mr-2" />
+                    Scan
+                  </Button>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    id="lookup-button"
+                    type="button"
+                    variant="outline"
+                    onClick={() => lookupItem(barcode)}
+                    disabled={!barcode || isLoading}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Looking up...
+                      </>
+                    ) : (
+                      "Look Up"
+                    )}
                   </Button>
                 </div>
               </div>
-              <Button onClick={handleManualSearch}>Search</Button>
-            </div>
 
-            {message && (
-              <div
-                className={`p-4 mb-6 rounded-md ${
-                  message.type === "success"
-                    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                    : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
-                }`}
-              >
-                {message.text}
-              </div>
-            )}
+              <form onSubmit={handleSubmit}>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="name">Item Name</Label>
+                    <Input
+                      id="name"
+                      value={itemName}
+                      onChange={(e) => setItemName(e.target.value)}
+                      placeholder="Enter item name"
+                      disabled={isLoading}
+                    />
+                  </div>
 
-            <TabsContent value="search">
-              {item && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{item.name}</CardTitle>
-                    <CardDescription>Barcode: {item.id}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-2">
-                      <div className="flex justify-between">
-                        <span>Category:</span>
-                        <span>{item.category}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Current Quantity:</span>
-                        <span>{formatQuantityWithUnit(item.quantity, item.unit)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Student Limit:</span>
-                        <span>{formatQuantityWithUnit(item.studentLimit, item.unit)}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button onClick={() => router.push(`/dashboard/inventory?itemId=${item.id}`)} className="w-full">
-                      View in Inventory
-                    </Button>
-                  </CardFooter>
-                </Card>
-              )}
-            </TabsContent>
-
-            <TabsContent value="update">
-              {item ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{item.name}</CardTitle>
-                    <CardDescription>Barcode: {item.id}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4">
-                      <div className="flex justify-between">
-                        <span>Category:</span>
-                        <span>{item.category}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Current Quantity:</span>
-                        <span>{formatQuantityWithUnit(item.quantity, item.unit)}</span>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="quantity">Quantity to Update</Label>
-                        <Input
-                          id="quantity"
-                          type="number"
-                          min="1"
-                          value={quantity}
-                          onChange={(e) => setQuantity(Number.parseInt(e.target.value) || 1)}
-                        />
-                      </div>
-                    </div>
-                  </CardContent>
-                  <CardFooter className="flex gap-4">
-                    <Button onClick={() => handleUpdateQuantity("add")} className="flex-1">
-                      Add
-                    </Button>
-                    <Button
-                      onClick={() => handleUpdateQuantity("remove")}
-                      variant="outline"
-                      className="flex-1"
-                      disabled={item.quantity < 1}
+                  <div>
+                    <Label htmlFor="category">Category</Label>
+                    <select
+                      id="category"
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isLoading}
                     >
-                      Remove
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ) : (
-                <div className="text-center p-6 bg-gray-100 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
-                  <p className="text-black dark:text-black font-medium">
-                    Scan or enter a barcode to update item quantity
-                  </p>
-                </div>
-              )}
-            </TabsContent>
+                      <option value="">Select a category</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-            <TabsContent value="add">
-              {item ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Item Already Exists</CardTitle>
-                    <CardDescription>Barcode: {item.id}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-2">
-                      <div className="flex justify-between">
-                        <span>Name:</span>
-                        <span>{item.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Category:</span>
-                        <span>{item.category}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Current Quantity:</span>
-                        <span>{formatQuantityWithUnit(item.quantity, item.unit)}</span>
-                      </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="quantity">Quantity</Label>
+                      <Input
+                        id="quantity"
+                        type="number"
+                        min="0"
+                        value={quantity}
+                        onChange={(e) => setQuantity(e.target.value)}
+                        disabled={isLoading}
+                      />
                     </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button onClick={() => router.push(`/dashboard/inventory?itemId=${item.id}`)} className="w-full">
-                      View in Inventory
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ) : (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Add New Item</CardTitle>
-                    <CardDescription>Enter item details</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="new-barcode">Barcode</Label>
-                        <Input
-                          id="new-barcode"
-                          value={newItem.id}
-                          onChange={(e) => setNewItem({ ...newItem, id: e.target.value })}
-                          placeholder="Barcode"
-                          disabled={!!barcode}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-name">Name</Label>
-                        <Input
-                          id="new-name"
-                          value={newItem.name}
-                          onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                          placeholder="Item name"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-category">Category</Label>
-                        <select
-                          id="new-category"
-                          value={newItem.category}
-                          onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                          className="w-full p-2 border rounded-md"
-                        >
-                          <option value="essentials">Essentials</option>
-                          <option value="grains">Grains</option>
-                          <option value="dairy">Dairy</option>
-                          <option value="produce">Produce</option>
-                          <option value="canned">Canned</option>
-                          <option value="south-asian">South Asian</option>
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-quantity">Initial Quantity</Label>
-                        <Input
-                          id="new-quantity"
-                          type="number"
-                          min="1"
-                          value={newItem.quantity}
-                          onChange={(e) => setNewItem({ ...newItem, quantity: Number.parseInt(e.target.value) || 1 })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-unit">Unit</Label>
-                        <select
-                          id="new-unit"
-                          value={newItem.unit}
-                          onChange={(e) => {
-                            const unit = e.target.value as "item" | "kg" | "lb"
-                            setNewItem({
-                              ...newItem,
-                              unit: unit,
-                              isWeighed: unit === "kg" || unit === "lb",
-                            })
-                          }}
-                          className="w-full p-2 border rounded-md"
-                        >
-                          <option value="item">Item</option>
-                          <option value="kg">Kilogram (kg)</option>
-                          <option value="lb">Pound (lb)</option>
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-student-limit">Student Limit</Label>
-                        <Input
-                          id="new-student-limit"
-                          type="number"
-                          min="1"
-                          value={newItem.studentLimit}
-                          onChange={(e) =>
-                            setNewItem({ ...newItem, studentLimit: Number.parseInt(e.target.value) || 1 })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-limit-duration">Limit Duration (Days)</Label>
-                        <Input
-                          id="new-limit-duration"
-                          type="number"
-                          min="0"
-                          value={newItem.limitDuration}
-                          onChange={(e) =>
-                            setNewItem({ ...newItem, limitDuration: Number.parseInt(e.target.value) || 0 })
-                          }
-                        />
-                      </div>
+                    <div>
+                      <Label htmlFor="price">Price</Label>
+                      <Input
+                        id="price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={price}
+                        onChange={(e) => setPrice(e.target.value)}
+                        disabled={isLoading}
+                      />
                     </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button onClick={handleAddNewItem} className="w-full">
-                      Add Item
-                    </Button>
-                  </CardFooter>
-                </Card>
-              )}
-            </TabsContent>
-          </>
-        )}
-      </Tabs>
+                  </div>
+
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Item"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

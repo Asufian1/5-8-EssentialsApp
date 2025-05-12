@@ -1,20 +1,22 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { processCsvImport, parsePrice } from "@/lib/csv-import"
-import { AlertCircle, Upload, Download } from "lucide-react"
+import { AlertCircle, Upload, Download, RefreshCw } from "lucide-react"
 import type { CsvImportItem } from "@/lib/csv-import"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
+import { getSupabaseClient } from "@/lib/supabase"
 
 export function CsvUpload() {
+  const router = useRouter()
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<CsvImportItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -32,6 +34,34 @@ export function CsvUpload() {
     priceIndex: number
     quantityIndex: number
   } | null>(null)
+  const [inventoryCount, setInventoryCount] = useState(0)
+  const [dbConnectionStatus, setDbConnectionStatus] = useState<"checking" | "connected" | "error">("checking")
+
+  // Load inventory count on mount and check database connection
+  useEffect(() => {
+    const checkDatabaseAndLoadCount = async () => {
+      try {
+        const supabase = getSupabaseClient()
+
+        // Test connection by getting count of inventory items
+        const { count, error } = await supabase.from("inventory_items").select("*", { count: "exact", head: true })
+
+        if (error) {
+          console.error("Database connection error:", error)
+          setDbConnectionStatus("error")
+          return
+        }
+
+        setDbConnectionStatus("connected")
+        setInventoryCount(count || 0)
+      } catch (error) {
+        console.error("Error checking database connection:", error)
+        setDbConnectionStatus("error")
+      }
+    }
+
+    checkDatabaseAndLoadCount()
+  }, [])
 
   // Function to download the sample CSV
   const downloadSampleCsv = async () => {
@@ -235,6 +265,20 @@ export function CsvUpload() {
           // Process the data
           const importResult = await processCsvImport(data)
           setResult(importResult)
+
+          // Update inventory count
+          const supabase = getSupabaseClient()
+          const { count } = await supabase.from("inventory_items").select("*", { count: "exact", head: true })
+
+          setInventoryCount(count || 0)
+
+          // Force a hard refresh of the page
+          if (importResult.success || importResult.added > 0 || importResult.updated > 0) {
+            // Wait a moment to ensure database operations complete
+            setTimeout(() => {
+              router.refresh()
+            }, 1000)
+          }
         } catch (error) {
           console.error("Error processing CSV:", error)
           setResult({
@@ -265,6 +309,11 @@ export function CsvUpload() {
   // Function to display preview items
   const displayItems = showAllItems ? preview : preview.slice(0, 5)
 
+  // Function to manually refresh the page
+  const refreshPage = () => {
+    router.refresh()
+  }
+
   return (
     <Tabs defaultValue="import">
       <TabsList className="mb-4">
@@ -282,9 +331,34 @@ export function CsvUpload() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {dbConnectionStatus === "error" && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Database Connection Error</AlertTitle>
+                <AlertDescription>
+                  Could not connect to the database. Please check your Supabase configuration.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {dbConnectionStatus === "connected" && (
+              <Alert
+                variant="default"
+                className="mb-4 bg-green-50 border-green-200 dark:bg-green-900 dark:border-green-800"
+              >
+                <AlertCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <AlertTitle>Database Connected</AlertTitle>
+                <AlertDescription>Successfully connected to the Supabase database.</AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex items-center gap-4 flex-wrap">
               <Input type="file" accept=".csv" onChange={handleFileChange} className="max-w-sm" />
-              <Button onClick={handleImport} disabled={!file || isLoading} className="whitespace-nowrap">
+              <Button
+                onClick={handleImport}
+                disabled={!file || isLoading || dbConnectionStatus !== "connected"}
+                className="whitespace-nowrap"
+              >
                 {isLoading ? "Importing..." : "Import CSV"}
                 <Upload className="ml-2 h-4 w-4" />
               </Button>
@@ -292,6 +366,16 @@ export function CsvUpload() {
                 Download Sample CSV
                 <Download className="ml-2 h-4 w-4" />
               </Button>
+              <Button variant="outline" onClick={refreshPage} className="whitespace-nowrap">
+                Refresh Page
+                <RefreshCw className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="bg-muted p-4 rounded-md">
+              <p className="text-sm">
+                Current inventory count: <strong>{inventoryCount}</strong> items
+              </p>
             </div>
 
             {preview.length > 0 && (
@@ -372,6 +456,12 @@ export function CsvUpload() {
                       ))}
                     </ul>
                   )}
+                  <div className="mt-4">
+                    <Button onClick={refreshPage} variant="outline" size="sm">
+                      Refresh Page
+                      <RefreshCw className="ml-2 h-4 w-4" />
+                    </Button>
+                  </div>
                 </AlertDescription>
               </Alert>
             )}
@@ -444,6 +534,7 @@ export function CsvUpload() {
               <li>For quantities, use whole numbers without units</li>
               <li>Preview your data before importing to ensure it's parsed correctly</li>
               <li>If you have special characters in product names, ensure the CSV is properly encoded (UTF-8)</li>
+              <li>After importing, click the "Refresh Page" button to see your changes</li>
             </ul>
           </CardContent>
         </Card>

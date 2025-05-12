@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getOrders, fulfillOrder } from "@/lib/data"
+import { getOrders, fulfillOrder } from "@/lib/data-db"
 import type { Order } from "@/lib/types"
 import {
   CheckCircle,
@@ -19,11 +19,16 @@ import {
   Package,
   Filter,
   Loader2,
+  RefreshCw,
+  AlertCircle,
+  Database,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { getSupabaseClient } from "@/lib/supabase"
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -31,6 +36,10 @@ export default function OrdersPage() {
   const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [isOrderDetailsOpen, setIsOrderDetailsOpen] = useState(false)
+  const [dbConnected, setDbConnected] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Search and sort states
   const [searchQuery, setSearchQuery] = useState("")
@@ -40,20 +49,57 @@ export default function OrdersPage() {
   const [filteredPendingOrders, setFilteredPendingOrders] = useState<Order[]>([])
   const [filteredFulfilledOrders, setFilteredFulfilledOrders] = useState<Order[]>([])
 
+  // Check database connection
   useEffect(() => {
-    const fetchOrders = async () => {
+    const checkDbConnection = async () => {
       try {
-        const fetchedOrders = await getOrders()
-        setOrders(fetchedOrders)
-      } catch (error) {
-        console.error("Error fetching orders:", error)
-      } finally {
-        setIsLoading(false)
+        const supabase = getSupabaseClient()
+        const { data, error } = await supabase.from("orders").select("count").single()
+
+        if (error) {
+          console.error("Database connection error:", error)
+          setDbConnected(false)
+          setError("Unable to connect to the database. Please check your connection.")
+        } else {
+          setDbConnected(true)
+          setError(null)
+        }
+      } catch (err) {
+        console.error("Failed to check database connection:", err)
+        setDbConnected(false)
+        setError("Failed to connect to the database. Please try again later.")
       }
     }
 
+    checkDbConnection()
+  }, [])
+
+  // Fetch orders
+  const fetchOrders = async () => {
+    try {
+      setIsRefreshing(true)
+      const fetchedOrders = await getOrders()
+      setOrders(fetchedOrders)
+      setLastRefreshed(new Date())
+      setError(null)
+    } catch (error) {
+      console.error("Error fetching orders:", error)
+      setError("Failed to fetch orders. Please try refreshing the page.")
+    } finally {
+      setIsLoading(false)
+      setIsRefreshing(false)
+    }
+  }
+
+  // Initial load
+  useEffect(() => {
     fetchOrders()
   }, [])
+
+  // Manual refresh function
+  const handleRefresh = () => {
+    fetchOrders()
+  }
 
   // Apply filtering and sorting whenever orders, search query, or sort order changes
   useEffect(() => {
@@ -164,6 +210,17 @@ export default function OrdersPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            <span>{isRefreshing ? "Refreshing..." : "Refresh Orders"}</span>
+          </Button>
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -197,6 +254,31 @@ export default function OrdersPage() {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Database status */}
+      {dbConnected ? (
+        <Alert className="bg-green-50 dark:bg-green-900 border-green-200 dark:border-green-800">
+          <Database className="h-4 w-4 text-green-600 dark:text-green-400" />
+          <AlertTitle className="text-green-800 dark:text-green-300">Database Connected</AlertTitle>
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Orders are being loaded from the database.
+            {lastRefreshed && (
+              <span className="ml-2 text-xs">Last refreshed: {lastRefreshed.toLocaleTimeString()}</span>
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Database Connection Error</AlertTitle>
+          <AlertDescription>
+            {error || "Unable to connect to the database. Orders may not be up to date."}
+            <Button variant="outline" size="sm" className="ml-2" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw className={`h-3 w-3 mr-1 ${isRefreshing ? "animate-spin" : ""}`} /> Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Search */}
       <div className="relative">

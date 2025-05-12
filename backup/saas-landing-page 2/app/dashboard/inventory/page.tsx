@@ -16,23 +16,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Search, Minus, Settings, Scale, Trash2, AlertTriangle, Barcode, Edit } from "lucide-react"
+import { Plus, Search, Minus, Settings, Scale, Trash2, AlertTriangle, Barcode, Edit, RefreshCw } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import type { InventoryItem } from "@/lib/types"
-import {
-  getInventoryItems,
-  updateInventoryItem,
-  addInventoryItem,
-  deleteInventoryItem,
-  formatTimeRestriction,
-  getCategories,
-} from "@/lib/data-local" // Changed from data-db to data-local
+import { formatTimeRestriction } from "@/lib/data-local"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import Link from "next/link"
 import { SeedDatabase } from "@/components/seed-database"
-// Add the import for the Supabase connection test component
 import { SupabaseConnectionTest } from "@/components/supabase-connection-test"
-import { isSupabaseConfigured } from "@/lib/supabase"
+import { isSupabaseConfigured, getSupabaseClient } from "@/lib/supabase"
 
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -43,6 +35,7 @@ export default function InventoryPage() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
 
   // New item form state
   const [newItem, setNewItem] = useState({
@@ -107,7 +100,7 @@ export default function InventoryPage() {
     // Load inventory data and categories
     loadInventory()
     loadCategories()
-  }, [])
+  }, [lastRefreshed])
 
   useEffect(() => {
     // Filter items based on search query and category
@@ -127,7 +120,35 @@ export default function InventoryPage() {
   const loadInventory = async () => {
     try {
       setIsLoading(true)
-      const inventoryItems = await getInventoryItems()
+
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+      const { data, error: fetchError } = await supabase
+        .from("inventory_items")
+        .select("*, categories(name)")
+        .order("name")
+
+      if (fetchError) {
+        throw fetchError
+      }
+
+      // Transform the data to match our InventoryItem type
+      const inventoryItems: InventoryItem[] = data.map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category_id,
+        categoryName: item.categories?.name,
+        quantity: Number(item.quantity),
+        studentLimit: Number(item.student_limit),
+        limitDuration: item.limit_duration,
+        limitDurationMinutes: item.limit_duration_minutes,
+        unit: item.unit as "item" | "kg" | "lb" | null,
+        isWeighed: item.is_weighed,
+        hasLimit: item.has_limit,
+        cost: item.cost ? Number(item.cost) : undefined,
+        supplier: item.supplier || undefined,
+      }))
+
       setItems(inventoryItems)
       setFilteredItems(inventoryItems)
     } catch (err) {
@@ -140,8 +161,15 @@ export default function InventoryPage() {
 
   const loadCategories = async () => {
     try {
-      const fetchedCategories = await getCategories()
-      setCategories(fetchedCategories)
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+      const { data, error: fetchError } = await supabase.from("categories").select("*").order("name")
+
+      if (fetchError) {
+        throw fetchError
+      }
+
+      setCategories(data)
     } catch (err) {
       console.error("Error loading categories:", err)
     }
@@ -160,19 +188,49 @@ export default function InventoryPage() {
         unit = newItem.unit
       }
 
-      await addInventoryItem({
-        id: Date.now().toString(),
+      const newItemId = newItem.id || Date.now().toString()
+
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+
+      // Insert the new item
+      const { error: insertError } = await supabase.from("inventory_items").insert({
+        id: newItemId,
         name: newItem.name,
-        category: newItem.category,
+        category_id: newItem.category,
         quantity: newItem.quantity,
-        studentLimit: newItem.studentLimit,
-        limitDuration: newItem.limitDuration,
-        limitDurationMinutes: newItem.limitDurationMinutes,
+        student_limit: newItem.studentLimit,
+        limit_duration: newItem.limitDuration,
+        limit_duration_minutes: newItem.limitDurationMinutes,
         unit: unit,
-        isWeighed: newItem.isWeighed,
-        hasLimit: newItem.hasLimit,
+        is_weighed: newItem.isWeighed,
+        has_limit: newItem.hasLimit,
         cost: newItem.cost,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
+
+      if (insertError) {
+        throw insertError
+      }
+
+      // Add transaction record
+      const { error: txError } = await supabase.from("transactions").insert({
+        id: `tx-${Date.now()}`,
+        type: "in",
+        item_id: newItemId,
+        item_name: newItem.name,
+        quantity: newItem.quantity,
+        user_id: "admin",
+        timestamp: new Date().toISOString(),
+        unit: unit,
+        cost: newItem.cost,
+        total_cost: newItem.cost * newItem.quantity,
+      })
+
+      if (txError) {
+        console.warn("Could not add transaction record:", txError)
+      }
 
       // Reset form and reload inventory
       setNewItem({
@@ -188,7 +246,8 @@ export default function InventoryPage() {
         cost: 0,
       })
 
-      loadInventory()
+      // Refresh the inventory
+      setLastRefreshed(new Date())
     } catch (err) {
       console.error("Error adding new item:", err)
       alert("Failed to add new item")
@@ -202,19 +261,60 @@ export default function InventoryPage() {
     }
 
     try {
-      const updatedItem = {
-        ...selectedItem,
-        quantity: selectedItem.quantity + quantityToAdd,
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+
+      // Get current quantity
+      const { data: currentItem, error: fetchError } = await supabase
+        .from("inventory_items")
+        .select("quantity")
+        .eq("id", selectedItem.id)
+        .single()
+
+      if (fetchError) {
+        throw fetchError
       }
 
-      await updateInventoryItem(updatedItem)
+      const newQuantity = Number(currentItem.quantity) + quantityToAdd
+
+      // Update the item
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({
+          quantity: newQuantity,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedItem.id)
+
+      if (updateError) {
+        throw updateError
+      }
+
+      // Add transaction record
+      const { error: txError } = await supabase.from("transactions").insert({
+        id: `tx-${Date.now()}`,
+        type: "in",
+        item_id: selectedItem.id,
+        item_name: selectedItem.name,
+        quantity: quantityToAdd,
+        user_id: "admin",
+        timestamp: new Date().toISOString(),
+        unit: selectedItem.unit,
+        cost: selectedItem.cost,
+        total_cost: selectedItem.cost ? selectedItem.cost * quantityToAdd : undefined,
+      })
+
+      if (txError) {
+        console.warn("Could not add transaction record:", txError)
+      }
 
       // Reset form and reload inventory
       setSelectedItem(null)
       setQuantityToAdd(0)
       setIsAddDialogOpen(false)
 
-      loadInventory()
+      // Refresh the inventory
+      setLastRefreshed(new Date())
     } catch (err) {
       console.error("Error adding quantity:", err)
       alert("Failed to update quantity")
@@ -233,19 +333,58 @@ export default function InventoryPage() {
     }
 
     try {
-      const updatedItem = {
-        ...selectedItem,
-        quantity: selectedItem.quantity - quantityToRemove,
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+
+      // Get current quantity
+      const { data: currentItem, error: fetchError } = await supabase
+        .from("inventory_items")
+        .select("quantity")
+        .eq("id", selectedItem.id)
+        .single()
+
+      if (fetchError) {
+        throw fetchError
       }
 
-      await updateInventoryItem(updatedItem)
+      const newQuantity = Number(currentItem.quantity) - quantityToRemove
+
+      // Update the item
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({
+          quantity: newQuantity,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedItem.id)
+
+      if (updateError) {
+        throw updateError
+      }
+
+      // Add transaction record
+      const { error: txError } = await supabase.from("transactions").insert({
+        id: `tx-${Date.now()}`,
+        type: "out",
+        item_id: selectedItem.id,
+        item_name: selectedItem.name,
+        quantity: quantityToRemove,
+        user_id: "admin",
+        timestamp: new Date().toISOString(),
+        unit: selectedItem.unit,
+      })
+
+      if (txError) {
+        console.warn("Could not add transaction record:", txError)
+      }
 
       // Reset form and reload inventory
       setSelectedItem(null)
       setQuantityToRemove(0)
       setIsRemoveDialogOpen(false)
 
-      loadInventory()
+      // Refresh the inventory
+      setLastRefreshed(new Date())
     } catch (err) {
       console.error("Error removing quantity:", err)
       alert("Failed to update quantity")
@@ -259,21 +398,31 @@ export default function InventoryPage() {
     }
 
     try {
-      const updatedItem = {
-        ...selectedItem,
-        studentLimit,
-        limitDuration,
-        limitDurationMinutes,
-        hasLimit,
-      }
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
 
-      await updateInventoryItem(updatedItem)
+      // Update the item
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({
+          student_limit: studentLimit,
+          limit_duration: limitDuration,
+          limit_duration_minutes: limitDurationMinutes,
+          has_limit: hasLimit,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedItem.id)
+
+      if (updateError) {
+        throw updateError
+      }
 
       // Reset form and reload inventory
       setSelectedItem(null)
       setIsLimitsDialogOpen(false)
 
-      loadInventory()
+      // Refresh the inventory
+      setLastRefreshed(new Date())
     } catch (err) {
       console.error("Error updating limits:", err)
       alert("Failed to update limits")
@@ -286,13 +435,74 @@ export default function InventoryPage() {
     }
 
     try {
-      await deleteInventoryItem(itemToDelete.id)
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+
+      // First, check if there are any related transactions
+      const { data: transactions, error: txCheckError } = await supabase
+        .from("transactions")
+        .select("id")
+        .eq("item_id", itemToDelete.id)
+        .limit(1)
+
+      if (txCheckError) {
+        console.error("Error checking transactions:", txCheckError)
+      }
+
+      // If there are related transactions, we need to delete them first
+      if (transactions && transactions.length > 0) {
+        // Delete related transactions first
+        const { error: txDeleteError } = await supabase.from("transactions").delete().eq("item_id", itemToDelete.id)
+
+        if (txDeleteError) {
+          console.error("Error deleting related transactions:", txDeleteError)
+          throw new Error(`Could not delete related transactions: ${txDeleteError.message}`)
+        }
+      }
+
+      // Check for student checkouts
+      const { data: checkouts, error: checkoutError } = await supabase
+        .from("student_checkouts")
+        .select("student_id")
+        .eq("item_id", itemToDelete.id)
+        .limit(1)
+
+      if (checkoutError) {
+        console.error("Error checking student checkouts:", checkoutError)
+      }
+
+      // If there are related checkouts, delete them
+      if (checkouts && checkouts.length > 0) {
+        const { error: checkoutDeleteError } = await supabase
+          .from("student_checkouts")
+          .delete()
+          .eq("item_id", itemToDelete.id)
+
+        if (checkoutDeleteError) {
+          console.error("Error deleting related checkouts:", checkoutDeleteError)
+          throw new Error(`Could not delete related checkouts: ${checkoutDeleteError.message}`)
+        }
+      }
+
+      // Now delete the item
+      const { error: deleteError } = await supabase.from("inventory_items").delete().eq("id", itemToDelete.id)
+
+      if (deleteError) {
+        console.error("Supabase delete error:", deleteError)
+        throw new Error(deleteError.message)
+      }
+
       setIsDeleteDialogOpen(false)
       setItemToDelete(null)
-      loadInventory()
+
+      // Show success message
+      alert(`Successfully deleted ${itemToDelete.name}`)
+
+      // Refresh the inventory
+      setLastRefreshed(new Date())
     } catch (err) {
       console.error("Error deleting item:", err)
-      alert("Failed to delete item")
+      alert(`Failed to delete item: ${err instanceof Error ? err.message : "Unknown error"}`)
     }
   }
 
@@ -302,10 +512,32 @@ export default function InventoryPage() {
     }
 
     try {
-      await updateInventoryItem(editItem)
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+
+      // Update the item
+      const { error: updateError } = await supabase
+        .from("inventory_items")
+        .update({
+          name: editItem.name,
+          category_id: editItem.category,
+          unit: editItem.unit,
+          is_weighed: editItem.isWeighed,
+          cost: editItem.cost,
+          supplier: editItem.supplier,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editItem.id)
+
+      if (updateError) {
+        throw updateError
+      }
+
       setIsEditDialogOpen(false)
       setEditItem(null)
-      loadInventory()
+
+      // Refresh the inventory
+      setLastRefreshed(new Date())
     } catch (err) {
       console.error("Error updating item:", err)
       alert("Failed to update item")
@@ -364,28 +596,38 @@ export default function InventoryPage() {
   }
 
   // Add a new function to seed random prices for inventory items
-  // Add this function after the existing functions in the component
-
-  // Add this function after the other handler functions
   const handleSeedRandomPrices = async () => {
     try {
+      // Use Supabase directly
+      const supabase = getSupabaseClient()
+
       // Get all inventory items
-      const inventoryItems = await getInventoryItems()
+      const { data: inventoryItems, error: fetchError } = await supabase.from("inventory_items").select("id")
+
+      if (fetchError) {
+        throw fetchError
+      }
 
       // Update each item with a random price
       for (const item of inventoryItems) {
         // Generate a random price between $0.50 and $15.00
         const randomPrice = (Math.random() * 14.5 + 0.5).toFixed(2)
 
-        // Update the item with the random price
-        await updateInventoryItem({
-          ...item,
-          cost: Number.parseFloat(randomPrice),
-        })
+        const { error: updateError } = await supabase
+          .from("inventory_items")
+          .update({
+            cost: Number.parseFloat(randomPrice),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.id)
+
+        if (updateError) {
+          console.warn(`Error updating price for item ${item.id}:`, updateError)
+        }
       }
 
-      // Reload inventory after updates
-      loadInventory()
+      // Refresh the inventory
+      setLastRefreshed(new Date())
 
       // Show success message
       alert("Random prices have been added to all inventory items!")
@@ -393,6 +635,11 @@ export default function InventoryPage() {
       console.error("Error seeding random prices:", err)
       alert("Failed to add random prices to inventory items")
     }
+  }
+
+  // Function to manually refresh the inventory
+  const refreshInventory = () => {
+    setLastRefreshed(new Date())
   }
 
   // Check if Supabase is configured
@@ -472,6 +719,10 @@ export default function InventoryPage() {
 
         {userType === "staff" && (
           <div className="flex gap-2">
+            <Button variant="outline" onClick={refreshInventory} className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Refresh Inventory
+            </Button>
             <Link href="/dashboard/barcode-scan">
               <Button variant="outline" className="flex items-center gap-2">
                 <Barcode className="h-4 w-4" />
@@ -973,6 +1224,13 @@ export default function InventoryPage() {
             </DialogDescription>
           </DialogHeader>
 
+          <div className="py-4">
+            <p className="text-sm text-amber-600">
+              <AlertTriangle className="h-4 w-4 inline mr-1" />
+              This will also delete all related transaction records and checkout history for this item.
+            </p>
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
               Cancel
@@ -1006,10 +1264,7 @@ export default function InventoryPage() {
 
               <div className="grid gap-2">
                 <Label htmlFor="edit-category">Category</Label>
-                <Select
-                  value={editItem.category}
-                  onValueChange={(value) => setEditItem({ ...editItem, category: value })}
-                >
+                <Select value={editItem.category} onChange={(value) => setEditItem({ ...editItem, category: value })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
@@ -1027,7 +1282,7 @@ export default function InventoryPage() {
                 <Switch
                   id="edit-isWeighed"
                   checked={editItem.isWeighed}
-                  onCheckedChange={(checked) => setEditItem({ ...editItem, isWeighed: checked })}
+                  onChange={(checked) => setEditItem({ ...editItem, isWeighed: checked })}
                 />
                 <Label htmlFor="edit-isWeighed" className="flex items-center">
                   <Scale className="h-4 w-4 mr-2" />
@@ -1099,7 +1354,24 @@ export default function InventoryPage() {
 
 async function InventoryContent() {
   // Always use local data for now until we confirm Supabase works
-  const inventoryItems = await getInventoryItems()
+  const supabase = getSupabaseClient()
+  const { data: inventoryItems, error } = await supabase
+    .from("inventory_items")
+    .select("*, categories(name)")
+    .order("name")
+
+  if (error) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">Error Loading Inventory</h1>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Database Error</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   // Rest of your inventory display code...
   return (
@@ -1111,13 +1383,13 @@ async function InventoryContent() {
           <Card key={item.id}>
             <CardHeader>
               <CardTitle>{item.name}</CardTitle>
-              <CardDescription>Category: {item.category}</CardDescription>
+              <CardDescription>Category: {item.categories?.name || item.category_id}</CardDescription>
             </CardHeader>
             <CardContent>
               <p>
                 Quantity: {item.quantity} {item.unit}
               </p>
-              <p>Cost: ${item.cost.toFixed(2)}</p>
+              <p>Cost: ${item.cost ? Number(item.cost).toFixed(2) : "0.00"}</p>
             </CardContent>
           </Card>
         ))}

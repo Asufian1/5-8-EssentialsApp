@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { ShoppingCart, Check, ArrowLeft, AlertCircle, CheckCircle } from "lucide-react"
+import { ShoppingCart, Check, ArrowLeft, AlertCircle, CheckCircle, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { createOrder, processDirectCheckout } from "@/lib/data-db"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { getSupabaseClient } from "@/lib/supabase"
 
 function formatQty(qty: number): string {
   const rounded = Math.round((qty + Number.EPSILON) * 100) / 100
@@ -27,6 +28,33 @@ export default function CheckoutPage() {
   const [cartItems, setCartItems] = useState<any[]>([])
   const [userType, setUserType] = useState("")
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [dbConnected, setDbConnected] = useState(false)
+  const [checkingConnection, setCheckingConnection] = useState(true)
+
+  // Check database connection on component mount
+  useEffect(() => {
+    const checkDbConnection = async () => {
+      try {
+        setCheckingConnection(true)
+        const supabase = getSupabaseClient()
+        const { data, error } = await supabase.from("inventory_items").select("count").single()
+
+        if (error) {
+          console.error("Database connection error:", error)
+          setDbConnected(false)
+        } else {
+          setDbConnected(true)
+        }
+      } catch (err) {
+        console.error("Failed to check database connection:", err)
+        setDbConnected(false)
+      } finally {
+        setCheckingConnection(false)
+      }
+    }
+
+    checkDbConnection()
+  }, [])
 
   // Load cart items and user type on component mount
   useEffect(() => {
@@ -52,6 +80,11 @@ export default function CheckoutPage() {
 
     if (!studentId.trim()) {
       setError("Please enter your student ID")
+      return
+    }
+
+    if (!dbConnected) {
+      setError("Database connection error. Please try again later.")
       return
     }
 
@@ -146,6 +179,19 @@ export default function CheckoutPage() {
         </Link>
       </div>
 
+      {!dbConnected && !checkingConnection && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Database Connection Error</AlertTitle>
+          <AlertDescription>
+            Unable to connect to the database. Your order may not be processed correctly.
+            <Button variant="outline" size="sm" className="ml-2" onClick={() => window.location.reload()}>
+              <RefreshCw className="h-3 w-3 mr-1" /> Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
           <Card>
@@ -200,7 +246,7 @@ export default function CheckoutPage() {
                 <Button
                   type="submit"
                   className="w-full bg-primary text-black hover:bg-primary/90"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !dbConnected}
                 >
                   {isSubmitting ? (
                     <span className="flex items-center gap-2">
