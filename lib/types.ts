@@ -18,7 +18,7 @@ export interface InventoryItem {
 
 export interface Transaction {
   id: string
-  type: "in" | "out"
+  type: "in" | "out" | "admin-removal" // Added "admin-removal" type
   itemId: string
   itemName: string
   quantity: number

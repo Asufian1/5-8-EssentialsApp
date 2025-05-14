@@ -55,6 +55,10 @@ export default function TakeItemsPage() {
     const userType = localStorage.getItem("userType")
     if (userType === "staff" || userType === "admin") {
       setIsAdminMode(true)
+    } else if (userType !== "student") {
+      // If not student or admin/staff, redirect to login
+      router.push("/login")
+      return
     }
 
     const loadData = async () => {
@@ -115,7 +119,7 @@ export default function TakeItemsPage() {
     }
 
     loadData()
-  }, [lastRefreshed])
+  }, [lastRefreshed, router])
 
   useEffect(() => {
     // Filter items based on search query and category

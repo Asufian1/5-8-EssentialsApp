@@ -1,5 +1,7 @@
 "use client"
 
+import { TableHeader } from "@/components/ui/table"
+
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -8,7 +10,7 @@ import type { Transaction, InventoryItem } from "@/lib/types"
 import { BarChart } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table"
 import {
   ChevronDown,
   ChevronUp,
@@ -112,11 +114,12 @@ export default function AnalyticsPage() {
       setProductAnalytics(analytics)
       console.log(`Calculated analytics for ${analytics.length} products`)
 
-      // Calculate popular items
+      // Calculate popular items - EXCLUDE admin removals
       console.log("Calculating popular items...")
       const itemCounts: Record<string, number> = {}
       transactionData.forEach((transaction) => {
-        if (transaction.type === "out") {
+        // Only count "out" transactions that are not admin removals
+        if (transaction.type === "out" && transaction.user !== "admin") {
           if (!itemCounts[transaction.itemName]) {
             itemCounts[transaction.itemName] = 0
           }
@@ -135,11 +138,12 @@ export default function AnalyticsPage() {
       setPopularItems(sortedItems)
       console.log(`Calculated ${sortedItems.length} popular items`)
 
-      // Calculate daily visits
+      // Calculate daily visits - EXCLUDE admin removals
       console.log("Calculating daily visits...")
       const visitsByDate: Record<string, Set<string>> = {}
       transactionData.forEach((transaction) => {
-        if (transaction.type === "out") {
+        // Only count "out" transactions that are not admin removals
+        if (transaction.type === "out" && transaction.user !== "admin") {
           const date = new Date(transaction.timestamp).toLocaleDateString()
           if (!visitsByDate[date]) {
             visitsByDate[date] = new Set()
@@ -156,12 +160,13 @@ export default function AnalyticsPage() {
       setDailyVisits(dailyVisitData)
       console.log(`Calculated daily visits for ${dailyVisitData.length} days`)
 
-      // Calculate category distribution
+      // Calculate category distribution - EXCLUDE admin removals
       console.log("Calculating category distribution...")
       const categoryCounts: Record<string, number> = {}
 
       transactionData.forEach((transaction) => {
-        if (transaction.type === "out") {
+        // Only count "out" transactions that are not admin removals
+        if (transaction.type === "out" && transaction.user !== "admin") {
           const item = items.find((i) => i.id === transaction.itemId)
           if (item) {
             if (!categoryCounts[item.category]) {
@@ -176,7 +181,7 @@ export default function AnalyticsPage() {
       setCategoryDistribution(categoryData)
       console.log(`Calculated distribution for ${categoryData.length} categories`)
 
-      // Calculate busiest days of the week
+      // Calculate busiest days of the week - EXCLUDE admin removals
       console.log("Calculating busiest days of the week...")
       const dayOfWeekCounts: Record<string, number> = {
         Sunday: 0,
@@ -189,7 +194,8 @@ export default function AnalyticsPage() {
       }
 
       transactionData.forEach((transaction) => {
-        if (transaction.type === "out") {
+        // Only count "out" transactions that are not admin removals
+        if (transaction.type === "out" && transaction.user !== "admin") {
           try {
             const date = new Date(transaction.timestamp)
             const dayOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][
@@ -213,7 +219,7 @@ export default function AnalyticsPage() {
       setBusiestDays(busiestDaysData)
       console.log("Calculated busiest days of the week")
 
-      // Calculate busiest times of day
+      // Calculate busiest times of day - EXCLUDE admin removals
       console.log("Calculating busiest times of day...")
       const timeOfDayCounts: Record<string, number> = {
         "Morning (6-11AM)": 0,
@@ -223,7 +229,8 @@ export default function AnalyticsPage() {
       }
 
       transactionData.forEach((transaction) => {
-        if (transaction.type === "out") {
+        // Only count "out" transactions that are not admin removals
+        if (transaction.type === "out" && transaction.user !== "admin") {
           try {
             const date = new Date(transaction.timestamp)
             const hour = date.getHours()
@@ -254,12 +261,13 @@ export default function AnalyticsPage() {
       setBusiestTimes(busiestTimesData)
       console.log("Calculated busiest times of day")
 
-      // Calculate specific food distribution with categories
+      // Calculate specific food distribution with categories - EXCLUDE admin removals
       console.log("Calculating specific food distribution...")
       const specificFoodCounts: Record<string, { count: number; category: string }> = {}
 
       transactionData.forEach((transaction) => {
-        if (transaction.type === "out") {
+        // Only count "out" transactions that are not admin removals
+        if (transaction.type === "out" && transaction.user !== "admin") {
           if (!specificFoodCounts[transaction.itemName]) {
             // Find the category for this item
             const item = items.find((item) => item.id === transaction.itemId)
@@ -307,8 +315,10 @@ export default function AnalyticsPage() {
       // Get transactions for this item
       const itemTransactions = transactions.filter((t) => t.itemId === item.id)
 
-      // Calculate total sold
-      const totalSold = itemTransactions.filter((t) => t.type === "out").reduce((sum, t) => sum + t.quantity, 0)
+      // Calculate total sold - EXCLUDE admin removals
+      const totalSold = itemTransactions
+        .filter((t) => t.type === "out" && t.user !== "admin")
+        .reduce((sum, t) => sum + t.quantity, 0)
 
       // Calculate total restocked
       const totalRestocked = itemTransactions.filter((t) => t.type === "in").reduce((sum, t) => sum + t.quantity, 0)
@@ -397,8 +407,10 @@ export default function AnalyticsPage() {
         // Get transactions for this product within the date range
         const productTransactions = filtered.filter((t) => t.itemId === product.id)
 
-        // Calculate total sold within date range
-        const totalSold = productTransactions.filter((t) => t.type === "out").reduce((sum, t) => sum + t.quantity, 0)
+        // Calculate total sold within date range - EXCLUDE admin removals
+        const totalSold = productTransactions
+          .filter((t) => t.type === "out" && t.user !== "admin")
+          .reduce((sum, t) => sum + t.quantity, 0)
 
         // Calculate total restocked within date range
         const totalRestocked = productTransactions
@@ -537,10 +549,12 @@ export default function AnalyticsPage() {
           // Create CSV header
           csvContent = "Type,Item Name,Quantity,User,Timestamp,Unit\n"
 
-          // Add data rows
-          filteredTransactions.forEach((transaction) => {
-            csvContent += `${transaction.type},${transaction.itemName},${formatNumber(transaction.quantity)},${transaction.user},${transaction.timestamp},${transaction.unit}\n`
-          })
+          // Add data rows - EXCLUDE admin removals for student analytics
+          filteredTransactions
+            .filter((transaction) => !(transaction.type === "out" && transaction.user === "admin"))
+            .forEach((transaction) => {
+              csvContent += `${transaction.type},${transaction.itemName},${formatNumber(transaction.quantity)},${transaction.user},${transaction.timestamp},${transaction.unit}\n`
+            })
 
           filename = `transactions-${dateRangeStr}.csv`
           break
@@ -639,6 +653,16 @@ export default function AnalyticsPage() {
       </div>
     )
   }
+
+  // Calculate total items distributed (excluding admin removals)
+  const totalItemsDistributed = filteredTransactions
+    .filter((t) => t.type === "out" && t.user !== "admin")
+    .reduce((sum, t) => sum + t.quantity, 0)
+
+  // Calculate unique users (excluding admin)
+  const uniqueUsers = new Set(
+    filteredTransactions.filter((t) => t.type === "out" && t.user !== "admin").map((t) => t.user),
+  ).size
 
   return (
     <div className="space-y-6">
@@ -794,7 +818,10 @@ export default function AnalyticsPage() {
                 <CardDescription>All-time transaction count</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{filteredTransactions.length}</div>
+                <div className="text-3xl font-bold">
+                  {filteredTransactions.filter((t) => !(t.type === "out" && t.user === "admin")).length}
+                </div>
+                <p className="text-xs text-muted-foreground">Excluding admin removals</p>
               </CardContent>
             </Card>
 
@@ -804,9 +831,8 @@ export default function AnalyticsPage() {
                 <CardDescription>Total unique students served</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">
-                  {new Set(filteredTransactions.filter((t) => t.type === "out").map((t) => t.user)).size}
-                </div>
+                <div className="text-3xl font-bold">{uniqueUsers}</div>
+                <p className="text-xs text-muted-foreground">Students who took items</p>
               </CardContent>
             </Card>
 
@@ -816,11 +842,8 @@ export default function AnalyticsPage() {
                 <CardDescription>Total items taken by students</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">
-                  {formatNumber(
-                    filteredTransactions.filter((t) => t.type === "out").reduce((sum, t) => sum + t.quantity, 0),
-                  )}
-                </div>
+                <div className="text-3xl font-bold">{formatNumber(totalItemsDistributed)}</div>
+                <p className="text-xs text-muted-foreground">Excluding admin removals</p>
               </CardContent>
             </Card>
           </div>

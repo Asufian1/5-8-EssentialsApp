@@ -3,43 +3,68 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Package, ShoppingBasket, Users, MapPin, ClipboardList, Clock } from "lucide-react"
-import { getInventoryItems, getTransactions, getOrders } from "@/lib/data"
+import { getInventoryItems, getTransactions, getOrders } from "@/lib/data-db"
 import type { Transaction } from "@/lib/types"
 
 export default function Dashboard() {
   const [totalItems, setTotalItems] = useState(0)
+  const [totalUniqueItems, setTotalUniqueItems] = useState(0)
   const [lowStockItems, setLowStockItems] = useState(0)
   const [todayVisits, setTodayVisits] = useState(0)
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([])
   const [userType, setUserType] = useState("")
   const [pendingOrders, setPendingOrders] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState("")
 
   useEffect(() => {
     const storedUserType = localStorage.getItem("userType")
     setUserType(storedUserType || "")
 
-    // Get inventory data
-    const items = getInventoryItems()
-    setTotalItems(items.reduce((sum, item) => sum + item.quantity, 0))
-    setLowStockItems(items.filter((item) => item.quantity < 10).length)
+    const loadDashboardData = async () => {
+      try {
+        setIsLoading(true)
+        setError("")
 
-    // Get transaction data
-    const transactions = getTransactions()
-    setRecentTransactions(transactions.slice(0, 5)) // Get 5 most recent transactions
+        // Get inventory data
+        const items = await getInventoryItems()
 
-    // Calculate today's visits (unique users who took items today)
-    const today = new Date().toDateString()
-    const todayTransactions = transactions.filter(
-      (t) => new Date(t.timestamp).toDateString() === today && t.type === "out",
-    )
-    const uniqueUsers = new Set(todayTransactions.map((t) => t.user))
-    setTodayVisits(uniqueUsers.size)
+        // Calculate total quantity of all items combined
+        const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0)
+        setTotalItems(totalQuantity)
 
-    // Get pending orders count
-    if (storedUserType === "staff") {
-      const orders = getOrders()
-      setPendingOrders(orders.filter((order) => order.status === "pending").length)
+        // Set total unique items count
+        setTotalUniqueItems(items.length)
+
+        // Calculate low stock items
+        setLowStockItems(items.filter((item) => item.quantity < 10).length)
+
+        // Get transaction data
+        const transactions = await getTransactions()
+        setRecentTransactions(transactions.slice(0, 5)) // Get 5 most recent transactions
+
+        // Calculate today's visits (unique users who took items today)
+        const today = new Date().toDateString()
+        const todayTransactions = transactions.filter(
+          (t) => new Date(t.timestamp).toDateString() === today && t.type === "out",
+        )
+        const uniqueUsers = new Set(todayTransactions.map((t) => t.user))
+        setTodayVisits(uniqueUsers.size)
+
+        // Get pending orders count
+        if (storedUserType === "staff" || storedUserType === "admin") {
+          const orders = await getOrders()
+          setPendingOrders(orders.filter((order) => order.status === "pending").length)
+        }
+      } catch (error) {
+        console.error("Error loading dashboard data:", error)
+        setError("Failed to load dashboard data")
+      } finally {
+        setIsLoading(false)
+      }
     }
+
+    loadDashboardData()
   }, [])
 
   return (
@@ -76,8 +101,9 @@ export default function Dashboard() {
             <Package className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalItems.toFixed(1)}</div>
-            <p className="text-xs text-muted-foreground">Items in inventory</p>
+            <div className="text-2xl font-bold">{isLoading ? "..." : totalItems.toFixed(1)}</div>
+            <p className="text-xs text-muted-foreground">Total quantity in inventory</p>
+            <p className="text-xs text-muted-foreground mt-1">({totalUniqueItems} unique items)</p>
           </CardContent>
         </Card>
 
@@ -87,19 +113,19 @@ export default function Dashboard() {
             <ShoppingBasket className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{lowStockItems}</div>
+            <div className="text-2xl font-bold">{isLoading ? "..." : lowStockItems}</div>
             <p className="text-xs text-muted-foreground">Items with less than 10 in stock</p>
           </CardContent>
         </Card>
 
-        {userType === "staff" ? (
+        {userType === "staff" || userType === "admin" ? (
           <Card className="border-t-4 border-primary">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
               <ClipboardList className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{pendingOrders}</div>
+              <div className="text-2xl font-bold">{isLoading ? "..." : pendingOrders}</div>
               <p className="text-xs text-muted-foreground">Orders awaiting fulfillment</p>
             </CardContent>
           </Card>
@@ -110,7 +136,7 @@ export default function Dashboard() {
               <Users className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{todayVisits}</div>
+              <div className="text-2xl font-bold">{isLoading ? "..." : todayVisits}</div>
               <p className="text-xs text-muted-foreground">Unique students today</p>
             </CardContent>
           </Card>
@@ -119,7 +145,7 @@ export default function Dashboard() {
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Only show Recent Activity for staff */}
-        {userType === "staff" && (
+        {(userType === "staff" || userType === "admin") && (
           <Card className="col-span-2 md:col-span-1 border-t-4 border-primary">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
@@ -127,7 +153,11 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {recentTransactions.length > 0 ? (
+                {isLoading ? (
+                  <div className="flex justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  </div>
+                ) : recentTransactions.length > 0 ? (
                   recentTransactions.map((transaction, index) => (
                     <div key={index} className="flex items-center">
                       <div

@@ -22,9 +22,51 @@ export function parseQuantity(quantityString: string): number {
   if (!quantityString || typeof quantityString !== "string") return 0
 
   // Remove any non-numeric characters except decimal points
-  const cleanedQuantity = quantityString.replace(/[^0-9.]/g, "")
-  const quantity = Number.parseFloat(cleanedQuantity)
+  const cleanedValue = quantityString.replace(/[^0-9.]/g, "")
+  const quantity = Number.parseFloat(cleanedValue)
   return isNaN(quantity) ? 0 : quantity
+}
+
+// Parse weight from string (e.g., "1 lb", "500g", "2kg", "20lb")
+export function parseWeight(weightString: string): { value: number; unit: string } {
+  if (!weightString || typeof weightString !== "string") {
+    return { value: 1, unit: "item" }
+  }
+
+  // Convert to lowercase for easier matching
+  const str = weightString.toLowerCase().trim()
+
+  // Check if this is a weighted item
+  const isWeighted =
+    str.includes("kg") ||
+    str.includes("kilo") ||
+    str.includes("lb") ||
+    str.includes("pound") ||
+    str.includes("g") ||
+    str.includes("oz")
+
+  if (!isWeighted) {
+    return { value: 1, unit: "item" }
+  }
+
+  // Extract numeric value - improved regex to better capture the number
+  // This regex will find one or more digits, optionally followed by a decimal point and more digits
+  const numericMatch = str.match(/(\d+\.?\d*)/)
+  const value = numericMatch ? Number.parseFloat(numericMatch[1]) : 1
+
+  // Determine unit
+  let unit = "item"
+  if (str.includes("kg") || str.includes("kilo")) {
+    unit = "kg"
+  } else if (str.includes("lb") || str.includes("pound")) {
+    unit = "lb"
+  } else if (str.includes("g") && !str.includes("kg")) {
+    unit = "g"
+  } else if (str.includes("oz")) {
+    unit = "oz"
+  }
+
+  return { value: isNaN(value) ? 1 : value, unit }
 }
 
 export async function processCsvImport(items: CsvImportItem[]): Promise<{
@@ -73,12 +115,12 @@ export async function processCsvImport(items: CsvImportItem[]): Promise<{
 
         // Parse price and quantity with better error handling
         const price = parsePrice(item.pricePerUnit)
-        const quantity =
+        const orderQuantity =
           typeof item.orderQuantities === "number" ? item.orderQuantities : parseQuantity(String(item.orderQuantities))
 
-        console.log(`Processing item: ${item.product}, Price: ${price}, Quantity: ${quantity}`)
+        console.log(`Processing item: ${item.product}, Price: ${price}, Order Quantity: ${orderQuantity}`)
 
-        if (quantity <= 0) {
+        if (orderQuantity <= 0) {
           throw new Error(`Invalid quantity for item: ${item.product}`)
         }
 
@@ -95,12 +137,16 @@ export async function processCsvImport(items: CsvImportItem[]): Promise<{
           weightAmountStr.includes("lb") ||
           weightAmountStr.includes("oz")
 
-        // Determine unit based on weight/amount string
-        let unit: "item" | "kg" | "lb" | null = "item"
-        if (isWeighed) {
-          if (weightAmountStr.includes("kg")) unit = "kg"
-          else if (weightAmountStr.includes("lb")) unit = "lb"
-        }
+        // Parse the weight value and unit
+        const { value: weightValue, unit } = parseWeight(item.weightAmount)
+
+        // Calculate the total quantity to add based on weight and order quantity
+        // For weighted items, multiply the weight by the order quantity
+        const quantityToAdd = isWeighed ? weightValue * orderQuantity : orderQuantity
+
+        console.log(
+          `Item ${item.product} is ${isWeighed ? "weighed" : "not weighed"}, Weight: ${weightValue} ${unit}, Total quantity to add: ${quantityToAdd}`,
+        )
 
         if (existingItem) {
           console.log(`Updating existing item: ${existingItem.name}, ID: ${existingItem.id}`)
@@ -109,7 +155,7 @@ export async function processCsvImport(items: CsvImportItem[]): Promise<{
           const { error: updateError } = await supabase
             .from("inventory_items")
             .update({
-              quantity: Number(existingItem.quantity) + quantity,
+              quantity: Number(existingItem.quantity) + quantityToAdd,
               cost: price,
               updated_at: new Date().toISOString(),
             })
@@ -125,12 +171,12 @@ export async function processCsvImport(items: CsvImportItem[]): Promise<{
             type: "in",
             item_id: existingItem.id,
             item_name: existingItem.name,
-            quantity: quantity,
+            quantity: quantityToAdd,
             user_id: "admin",
             timestamp: new Date().toISOString(),
             unit: unit,
             cost: price,
-            total_cost: price * quantity,
+            total_cost: price * orderQuantity, // Total cost is based on order quantity, not the weight-adjusted quantity
           })
 
           if (txError) {
@@ -149,7 +195,7 @@ export async function processCsvImport(items: CsvImportItem[]): Promise<{
             id: newItemId,
             name: item.product,
             category_id: "other", // Default category for imported items
-            quantity: quantity,
+            quantity: quantityToAdd,
             student_limit: 1,
             limit_duration: 7,
             limit_duration_minutes: 0,
@@ -171,12 +217,12 @@ export async function processCsvImport(items: CsvImportItem[]): Promise<{
             type: "in",
             item_id: newItemId,
             item_name: item.product,
-            quantity: quantity,
+            quantity: quantityToAdd,
             user_id: "admin",
             timestamp: new Date().toISOString(),
             unit: unit,
             cost: price,
-            total_cost: price * quantity,
+            total_cost: price * orderQuantity, // Total cost is based on order quantity, not the weight-adjusted quantity
           })
 
           if (txError) {

@@ -8,12 +8,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { processCsvImport, parsePrice } from "@/lib/csv-import"
-import { AlertCircle, Upload, Download, RefreshCw } from "lucide-react"
+import { processCsvImport, parsePrice, parseWeight } from "@/lib/csv-import"
+import { AlertCircle, Upload, Download, RefreshCw, Info } from "lucide-react"
 import type { CsvImportItem } from "@/lib/csv-import"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { getSupabaseClient } from "@/lib/supabase"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export function CsvUpload() {
   const router = useRouter()
@@ -36,6 +37,9 @@ export function CsvUpload() {
   } | null>(null)
   const [inventoryCount, setInventoryCount] = useState(0)
   const [dbConnectionStatus, setDbConnectionStatus] = useState<"checking" | "connected" | "error">("checking")
+  const [calculatedQuantities, setCalculatedQuantities] = useState<{
+    [key: number]: { quantity: number; unit: string }
+  }>({})
 
   // Load inventory count on mount and check database connection
   useEffect(() => {
@@ -171,6 +175,8 @@ export function CsvUpload() {
 
         // Parse data rows (skip header)
         const data: CsvImportItem[] = []
+        const newCalculatedQuantities: { [key: number]: { quantity: number; unit: string } } = {}
+
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue // Skip empty lines
 
@@ -187,12 +193,28 @@ export function CsvUpload() {
             // Calculate total cost
             item.totalCost = parsePrice(item.pricePerUnit) * item.orderQuantities
 
+            // Calculate the actual quantity that will be added to inventory
+            const { value: weightValue, unit } = parseWeight(item.weightAmount)
+            const isWeighed =
+              item.weightAmount.toLowerCase().includes("kg") ||
+              item.weightAmount.toLowerCase().includes("lb") ||
+              item.weightAmount.toLowerCase().includes("g") ||
+              item.weightAmount.toLowerCase().includes("oz")
+
+            const actualQuantity = isWeighed ? weightValue * item.orderQuantities : item.orderQuantities
+
+            newCalculatedQuantities[i - 1] = {
+              quantity: actualQuantity,
+              unit: unit,
+            }
+
             data.push(item)
           }
         }
 
         // Show all items or just the first 5
         setPreview(data)
+        setCalculatedQuantities(newCalculatedQuantities)
 
         if (data.length === 0) {
           setResult({
@@ -269,7 +291,6 @@ export function CsvUpload() {
           // Update inventory count
           const supabase = getSupabaseClient()
           const { count } = await supabase.from("inventory_items").select("*", { count: "exact", head: true })
-
           setInventoryCount(count || 0)
 
           // Force a hard refresh of the page
@@ -315,230 +336,320 @@ export function CsvUpload() {
   }
 
   return (
-    <Tabs defaultValue="import">
-      <TabsList className="mb-4">
-        <TabsTrigger value="import">Import CSV</TabsTrigger>
-        <TabsTrigger value="guide">Import Guide</TabsTrigger>
-      </TabsList>
+    <TooltipProvider>
+      <Tabs defaultValue="import">
+        <TabsList className="mb-4">
+          <TabsTrigger value="import">Import CSV</TabsTrigger>
+          <TabsTrigger value="guide">Import Guide</TabsTrigger>
+        </TabsList>
 
-      <TabsContent value="import">
-        <Card>
-          <CardHeader>
-            <CardTitle>Import Inventory from CSV</CardTitle>
-            <CardDescription>
-              Upload a CSV file to update your inventory. The file should include columns for product name,
-              weight/amount, price per unit, and order quantities.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {dbConnectionStatus === "error" && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Database Connection Error</AlertTitle>
+        <TabsContent value="import">
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Inventory from CSV</CardTitle>
+              <CardDescription>
+                Upload a CSV file to update your inventory. The file should include columns for product name,
+                weight/amount, price per unit, and order quantities.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {dbConnectionStatus === "error" && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Database Connection Error</AlertTitle>
+                  <AlertDescription>
+                    Could not connect to the database. Please check your Supabase configuration.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {dbConnectionStatus === "connected" && (
+                <Alert
+                  variant="default"
+                  className="mb-4 bg-green-50 border-green-200 dark:bg-green-900 dark:border-green-800"
+                >
+                  <AlertCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <AlertTitle>Database Connected</AlertTitle>
+                  <AlertDescription>Successfully connected to the Supabase database.</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex items-center gap-4 flex-wrap">
+                <Input type="file" accept=".csv" onChange={handleFileChange} className="max-w-sm" />
+                <Button
+                  onClick={handleImport}
+                  disabled={!file || isLoading || dbConnectionStatus !== "connected"}
+                  className="whitespace-nowrap"
+                >
+                  {isLoading ? "Importing..." : "Import CSV"}
+                  <Upload className="ml-2 h-4 w-4" />
+                </Button>
+                <Button variant="outline" onClick={downloadSampleCsv} className="whitespace-nowrap">
+                  Download Sample CSV
+                  <Download className="ml-2 h-4 w-4" />
+                </Button>
+                <Button variant="outline" onClick={refreshPage} className="whitespace-nowrap">
+                  Refresh Page
+                  <RefreshCw className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="bg-muted p-4 rounded-md">
+                <p className="text-sm">
+                  Current inventory count: <strong>{inventoryCount}</strong> items
+                </p>
+              </div>
+
+              {preview.length > 0 && (
+                <div className="mt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-medium">Preview {!showAllItems && "(First 5 rows)"}</h3>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="showAll"
+                        checked={showAllItems}
+                        onCheckedChange={(checked) => setShowAllItems(checked as boolean)}
+                      />
+                      <label htmlFor="showAll" className="text-sm cursor-pointer">
+                        Show all items
+                      </label>
+                    </div>
+                  </div>
+
+                  <Alert className="mb-4 bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-800">
+                    <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <AlertTitle>Weighted Items Calculation</AlertTitle>
+                    <AlertDescription>
+                      For weighted items (kg, lb), the system will multiply the weight by the order quantity. For
+                      example, if you import 3 units of a 1 lb item, 3 lbs will be added to inventory.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Weight/Amount</TableHead>
+                          <TableHead>Price (per unit)</TableHead>
+                          <TableHead>Order Quantity</TableHead>
+                          <TableHead>
+                            <div className="flex items-center">
+                              Inventory Addition
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 ml-1">
+                                    <Info className="h-3 w-3" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs">
+                                  <p>
+                                    For weighted items, this shows the total amount that will be added to inventory
+                                    (Weight × Order Quantity).
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableHead>
+                          <TableHead>Total Cost</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {displayItems.map((item, index) => {
+                          const { value: weightValue, unit } = parseWeight(item.weightAmount)
+                          const isWeighed =
+                            item.weightAmount.toLowerCase().includes("kg") ||
+                            item.weightAmount.toLowerCase().includes("g") ||
+                            item.weightAmount.toLowerCase().includes("lb") ||
+                            item.weightAmount.toLowerCase().includes("oz")
+
+                          const calculatedQuantity = isWeighed
+                            ? weightValue * item.orderQuantities
+                            : item.orderQuantities
+
+                          return (
+                            <TableRow key={index}>
+                              <TableCell>{item.product}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center">
+                                  {item.weightAmount}
+                                  {isWeighed && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="ml-1 text-green-500">✓</span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>
+                                          Weighted item: {weightValue} {unit}
+                                        </p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>{item.pricePerUnit}</TableCell>
+                              <TableCell>{item.orderQuantities}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center">
+                                  <span className="font-medium">
+                                    {calculatedQuantity.toFixed(2)} {unit}
+                                  </span>
+                                  {isWeighed && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-5 w-5 ml-1">
+                                          <Info className="h-3 w-3" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>
+                                          {weightValue} {unit} × {item.orderQuantities} ={" "}
+                                          {calculatedQuantity.toFixed(2)} {unit}
+                                        </p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                ${(parsePrice(item.pricePerUnit) * item.orderQuantities).toFixed(2)}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {preview.length > 5 && !showAllItems && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      {preview.length - 5} more items not shown. Check "Show all items" to view all.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {result && (
+                <Alert variant={result.success ? "default" : "destructive"} className="mt-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>{result.success ? "Import Successful" : "Import Completed with Errors"}</AlertTitle>
+                  <AlertDescription>
+                    <p>
+                      Added: {result.added} items, Updated: {result.updated} items
+                      {result.failed > 0 && `, Failed: ${result.failed} items`}
+                    </p>
+                    {result.errors.length > 0 && (
+                      <ul className="list-disc pl-5 mt-2 text-sm">
+                        {result.errors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="mt-4">
+                      <Button onClick={refreshPage} variant="outline" size="sm">
+                        Refresh Page
+                        <RefreshCw className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <p className="text-sm text-muted-foreground">
+                Need help? Check the Import Guide tab for more information.
+              </p>
+            </CardFooter>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="guide">
+          <Card>
+            <CardHeader>
+              <CardTitle>CSV Import Guide</CardTitle>
+              <CardDescription>
+                Learn how to properly format your CSV file for importing inventory items.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <h3 className="text-lg font-medium">Required Columns</h3>
+              <p>Your CSV file must include the following columns:</p>
+              <ul className="list-disc pl-5 space-y-2">
+                <li>
+                  <strong>Product</strong> - The name of the product (e.g., "Maggi Noodles")
+                </li>
+                <li>
+                  <strong>Weight/Amount</strong> - The weight or amount for one unit (e.g., "100g", "1kg", "1")
+                </li>
+                <li>
+                  <strong>Price (per unit)</strong> - The price per unit (e.g., "$1.29", "2.50")
+                </li>
+                <li>
+                  <strong>Order Quantities</strong> - The number of units to add to inventory (e.g., "10", "100")
+                </li>
+              </ul>
+
+              <Alert className="my-4 bg-yellow-50 border-yellow-200 dark:bg-yellow-900/30 dark:border-yellow-800">
+                <Info className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                <AlertTitle>Important: Weighted Items</AlertTitle>
                 <AlertDescription>
-                  Could not connect to the database. Please check your Supabase configuration.
+                  <p className="mb-2">For weighted items (with kg, lb, etc.), the system will:</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>Extract the weight value from the "Weight/Amount" column (e.g., "20" from "20 lb")</li>
+                    <li>Multiply this weight by the order quantity</li>
+                    <li>Add the total weight to inventory</li>
+                  </ul>
+                  <p className="mt-2">
+                    <strong>Example:</strong> If you import 3 units of a "20 lb" item, 60 lbs will be added to
+                    inventory.
+                  </p>
                 </AlertDescription>
               </Alert>
-            )}
 
-            {dbConnectionStatus === "connected" && (
-              <Alert
-                variant="default"
-                className="mb-4 bg-green-50 border-green-200 dark:bg-green-900 dark:border-green-800"
-              >
-                <AlertCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-                <AlertTitle>Database Connected</AlertTitle>
-                <AlertDescription>Successfully connected to the Supabase database.</AlertDescription>
-              </Alert>
-            )}
+              <h3 className="text-lg font-medium mt-4">Column Name Variations</h3>
+              <p>The system recognizes various column names:</p>
+              <ul className="list-disc pl-5 space-y-2">
+                <li>
+                  <strong>Product</strong>: "Product", "Name", "Item", "Product Name"
+                </li>
+                <li>
+                  <strong>Weight/Amount</strong>: "Weight", "Amount", "Size", "Weight/Amount"
+                </li>
+                <li>
+                  <strong>Price</strong>: "Price", "Cost", "Rate", "Price (per unit)"
+                </li>
+                <li>
+                  <strong>Quantity</strong>: "Quantity", "Qty", "Count", "Order Quantities", "Order Quantity"
+                </li>
+              </ul>
 
-            <div className="flex items-center gap-4 flex-wrap">
-              <Input type="file" accept=".csv" onChange={handleFileChange} className="max-w-sm" />
-              <Button
-                onClick={handleImport}
-                disabled={!file || isLoading || dbConnectionStatus !== "connected"}
-                className="whitespace-nowrap"
-              >
-                {isLoading ? "Importing..." : "Import CSV"}
-                <Upload className="ml-2 h-4 w-4" />
-              </Button>
-              <Button variant="outline" onClick={downloadSampleCsv} className="whitespace-nowrap">
+              <h3 className="text-lg font-medium mt-4">Sample CSV Format</h3>
+              <div className="bg-muted p-4 rounded-md overflow-x-auto">
+                <pre className="text-xs">
+                  Product,Weight/Amount (for 1),Price (per unit),Order Quantities Maggi Noodles,100g,$1.29,10
+                  Rice,1kg,$3.99,5 Sona Masoori Rice,20lb,$25.99,13
+                </pre>
+              </div>
+
+              <Button variant="outline" onClick={downloadSampleCsv} className="mt-4">
                 Download Sample CSV
                 <Download className="ml-2 h-4 w-4" />
               </Button>
-              <Button variant="outline" onClick={refreshPage} className="whitespace-nowrap">
-                Refresh Page
-                <RefreshCw className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
 
-            <div className="bg-muted p-4 rounded-md">
-              <p className="text-sm">
-                Current inventory count: <strong>{inventoryCount}</strong> items
-              </p>
-            </div>
-
-            {preview.length > 0 && (
-              <div className="mt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-lg font-medium">Preview {!showAllItems && "(First 5 rows)"}</h3>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="showAll"
-                      checked={showAllItems}
-                      onCheckedChange={(checked) => setShowAllItems(checked as boolean)}
-                    />
-                    <label htmlFor="showAll" className="text-sm cursor-pointer">
-                      Show all items
-                    </label>
-                  </div>
-                </div>
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Product</TableHead>
-                        <TableHead>Weight/Amount</TableHead>
-                        <TableHead>Price (per unit)</TableHead>
-                        <TableHead>Order Quantity</TableHead>
-                        <TableHead>Total Cost</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {displayItems.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{item.product}</TableCell>
-                          <TableCell>{item.weightAmount}</TableCell>
-                          <TableCell>{item.pricePerUnit}</TableCell>
-                          <TableCell>{item.orderQuantities}</TableCell>
-                          <TableCell>${(parsePrice(item.pricePerUnit) * item.orderQuantities).toFixed(2)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                {preview.length > 5 && !showAllItems && (
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {preview.length - 5} more items not shown. Check "Show all items" to view all.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Debug information - can be removed in production */}
-            {preview.length > 0 && (
-              <div className="mt-4 p-4 bg-muted rounded-md">
-                <details>
-                  <summary className="cursor-pointer font-medium">Debug Information</summary>
-                  <div className="mt-2 text-xs overflow-auto max-h-40">
-                    <p>Column Mapping:</p>
-                    <pre>{JSON.stringify(columnMapping, null, 2)}</pre>
-                    <p>First Item:</p>
-                    <pre>{JSON.stringify(preview[0], null, 2)}</pre>
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {result && (
-              <Alert variant={result.success ? "default" : "destructive"} className="mt-4">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>{result.success ? "Import Successful" : "Import Completed with Errors"}</AlertTitle>
-                <AlertDescription>
-                  <p>
-                    Added: {result.added} items, Updated: {result.updated} items
-                    {result.failed > 0 && `, Failed: ${result.failed} items`}
-                  </p>
-                  {result.errors.length > 0 && (
-                    <ul className="list-disc pl-5 mt-2 text-sm">
-                      {result.errors.map((error, index) => (
-                        <li key={index}>{error}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="mt-4">
-                    <Button onClick={refreshPage} variant="outline" size="sm">
-                      Refresh Page
-                      <RefreshCw className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <p className="text-sm text-muted-foreground">Need help? Check the Import Guide tab for more information.</p>
-          </CardFooter>
-        </Card>
-      </TabsContent>
-
-      <TabsContent value="guide">
-        <Card>
-          <CardHeader>
-            <CardTitle>CSV Import Guide</CardTitle>
-            <CardDescription>Learn how to properly format your CSV file for importing inventory items.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <h3 className="text-lg font-medium">Required Columns</h3>
-            <p>Your CSV file must include the following columns:</p>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>
-                <strong>Product</strong> - The name of the product (e.g., "Maggi Noodles")
-              </li>
-              <li>
-                <strong>Weight/Amount</strong> - The weight or amount for one unit (e.g., "100g", "1kg", "1")
-              </li>
-              <li>
-                <strong>Price (per unit)</strong> - The price per unit (e.g., "$1.29", "2.50")
-              </li>
-              <li>
-                <strong>Order Quantities</strong> - The number of units to add to inventory (e.g., "10", "100")
-              </li>
-            </ul>
-
-            <h3 className="text-lg font-medium mt-4">Column Name Variations</h3>
-            <p>The system recognizes various column names:</p>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>
-                <strong>Product</strong>: "Product", "Name", "Item", "Product Name"
-              </li>
-              <li>
-                <strong>Weight/Amount</strong>: "Weight", "Amount", "Size", "Weight/Amount"
-              </li>
-              <li>
-                <strong>Price</strong>: "Price", "Cost", "Rate", "Price (per unit)"
-              </li>
-              <li>
-                <strong>Quantity</strong>: "Quantity", "Qty", "Count", "Order Quantities", "Order Quantity"
-              </li>
-            </ul>
-
-            <h3 className="text-lg font-medium mt-4">Sample CSV Format</h3>
-            <div className="bg-muted p-4 rounded-md overflow-x-auto">
-              <pre className="text-xs">
-                Product,Weight/Amount (for 1),Price (per unit),Order Quantities Maggi Noodles,100g,$1.29,10
-                Rice,1kg,$3.99,5 Bread,1,$2.50,20
-              </pre>
-            </div>
-
-            <Button variant="outline" onClick={downloadSampleCsv} className="mt-4">
-              Download Sample CSV
-              <Download className="ml-2 h-4 w-4" />
-            </Button>
-
-            <h3 className="text-lg font-medium mt-4">Tips for Successful Import</h3>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>Make sure your CSV file uses commas as separators</li>
-              <li>Include clear column headers that match the expected names</li>
-              <li>For prices, you can include or omit currency symbols ($, €, etc.)</li>
-              <li>For quantities, use whole numbers without units</li>
-              <li>Preview your data before importing to ensure it's parsed correctly</li>
-              <li>If you have special characters in product names, ensure the CSV is properly encoded (UTF-8)</li>
-              <li>After importing, click the "Refresh Page" button to see your changes</li>
-            </ul>
-          </CardContent>
-        </Card>
-      </TabsContent>
-    </Tabs>
+              <h3 className="text-lg font-medium mt-4">Tips for Successful Import</h3>
+              <ul className="list-disc pl-5 space-y-2">
+                <li>Make sure your CSV file uses commas as separators</li>
+                <li>Include clear column headers that match the expected names</li>
+                <li>For prices, you can include or omit currency symbols ($, €, etc.)</li>
+                <li>For quantities, use whole numbers without units</li>
+                <li>For weighted items, include the unit (kg, lb) in the Weight/Amount column</li>
+                <li>Preview your data before importing to ensure it's parsed correctly</li>
+                <li>If you have special characters in product names, ensure the CSV is properly encoded (UTF-8)</li>
+                <li>After importing, click the "Refresh Page" button to see your changes</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </TooltipProvider>
   )
 }

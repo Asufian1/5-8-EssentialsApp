@@ -6,10 +6,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getInventoryItems, getTransactions } from "@/lib/data-db"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { AlertTriangle, CheckCircle, TrendingDown, TrendingUp, DollarSign, ShoppingCart, RefreshCw } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle,
+  TrendingDown,
+  TrendingUp,
+  DollarSign,
+  ShoppingCart,
+  RefreshCw,
+  Info,
+  HelpCircle,
+} from "lucide-react"
 import type { InventoryItem, Transaction } from "@/lib/types"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 // Helper function to format currency
 const formatCurrency = (value: number): string => {
@@ -464,12 +475,64 @@ export function PriceAndUsageAnalytics() {
         <TabsContent value="price-analysis">
           <Card>
             <CardHeader>
-              <CardTitle>Value Analysis</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <span>Value Analysis</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-full">
+                      <HelpCircle className="h-4 w-4" />
+                      <span className="sr-only">What is Uses per Dollar?</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-2">
+                      <h4 className="font-medium">What is "Uses per Dollar"?</h4>
+                      <p className="text-sm text-muted-foreground">
+                        "Uses per Dollar" measures how many times an item is used (taken out) for each dollar it costs.
+                      </p>
+                      <div className="rounded-md bg-muted p-3">
+                        <p className="text-sm font-medium">Formula:</p>
+                        <p className="text-sm mt-1">Uses per Dollar = Number of times used ÷ Cost per item</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        <strong>Example:</strong> If an apple costs $0.50 and was taken 10 times, its Uses per Dollar is
+                        10 ÷ 0.50 = 20
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Higher values indicate better value - items that are frequently used relative to their cost.
+                      </p>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </CardTitle>
               <CardDescription>Items with the best popularity-to-cost ratio (higher is better)</CardDescription>
             </CardHeader>
             <CardContent>
               <div>
-                <h3 className="text-lg font-medium mb-4">Popularity-to-Cost Ratio</h3>
+                <h3 className="text-lg font-medium mb-4 flex items-center">
+                  <span>Popularity-to-Cost Ratio</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 ml-2">
+                        <Info className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      <div className="space-y-2">
+                        <h4 className="font-medium">How is this calculated?</h4>
+                        <p className="text-sm text-muted-foreground">
+                          This chart shows which items give you the most usage per dollar spent. The formula is:
+                        </p>
+                        <div className="rounded-md bg-muted p-3">
+                          <p className="text-sm">Uses per Dollar = Number of times used ÷ Cost per item</p>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Higher values indicate better value - items that are frequently used relative to their cost.
+                        </p>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   This chart shows which items give you the most usage per dollar spent. Higher values indicate better
                   value.
@@ -506,7 +569,39 @@ export function PriceAndUsageAnalytics() {
                 </div>
               </div>
               <div className="mt-6">
-                <h3 className="text-lg font-medium mb-4">Value Analysis Table</h3>
+                <h3 className="text-lg font-medium mb-4 flex items-center">
+                  <span>Value Analysis Table</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 ml-2">
+                        <Info className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      <div className="space-y-2">
+                        <h4 className="font-medium">Understanding the Ratings</h4>
+                        <ul className="space-y-1">
+                          <li className="text-sm flex items-center">
+                            <Badge className="mr-2 bg-green-500">Excellent</Badge>
+                            <span>More than 2x the average uses per dollar</span>
+                          </li>
+                          <li className="text-sm flex items-center">
+                            <Badge className="mr-2 bg-green-400">Good</Badge>
+                            <span>Between 1.5x and 2x the average</span>
+                          </li>
+                          <li className="text-sm flex items-center">
+                            <Badge className="mr-2 bg-yellow-500">Average</Badge>
+                            <span>Above average but less than 1.5x</span>
+                          </li>
+                          <li className="text-sm flex items-center">
+                            <Badge className="mr-2 bg-red-500">Poor</Badge>
+                            <span>Below average uses per dollar</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </h3>
                 <Table>
                   <TableHeader>
                     <TableRow>
