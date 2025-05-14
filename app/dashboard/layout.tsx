@@ -60,9 +60,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   useEffect(() => {
-    // If it's a public route, set userType to student
+    // If it's a public route, always ensure we're in student mode
     if (isPublicRoute) {
-      localStorage.setItem("userType", "student")
       setUserType("student")
       return
     }
@@ -186,8 +185,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               variant="ghost"
               size="sm"
               onClick={() => {
+                // Clear all authentication-related items
                 localStorage.removeItem("userType")
-                window.location.href = "/login"
+                localStorage.removeItem("username")
+                localStorage.removeItem("isAuthenticated")
+
+                // Redirect to home page instead of login
+                window.location.href = "/"
               }}
             >
               <LogOut className="mr-2 h-4 w-4" />
@@ -234,7 +238,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               }`}
             >
               <ShoppingBag className="mr-2 h-4 w-4" />
-              Take Out Items
+              Admin Checkout
             </Link>
             <Link
               href="/dashboard/orders"

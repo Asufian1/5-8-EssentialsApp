@@ -515,13 +515,21 @@ export default function InventoryPage() {
       // Use Supabase directly
       const supabase = getSupabaseClient()
 
+      // Ensure unit is one of the allowed values
+      let unit: "item" | "kg" | "lb" | null = "item"
+      if (editItem.isWeighed && (editItem.unit === "kg" || editItem.unit === "lb")) {
+        unit = editItem.unit
+      } else if (!editItem.isWeighed) {
+        unit = "item"
+      }
+
       // Update the item
       const { error: updateError } = await supabase
         .from("inventory_items")
         .update({
           name: editItem.name,
           category_id: editItem.category,
-          unit: editItem.unit,
+          unit: unit,
           is_weighed: editItem.isWeighed,
           cost: editItem.cost,
           supplier: editItem.supplier,
@@ -949,7 +957,7 @@ export default function InventoryPage() {
               />
             </div>
 
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <Select value={categoryFilter} onValueChange={(value) => setCategoryFilter(value)}>
               <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
@@ -1285,7 +1293,22 @@ export default function InventoryPage() {
                 <Switch
                   id="edit-isWeighed"
                   checked={editItem.isWeighed}
-                  onChange={(checked) => setEditItem({ ...editItem, isWeighed: checked })}
+                  onCheckedChange={(checked) => {
+                    // When toggling isWeighed, also set a default unit if needed
+                    if (checked && (!editItem.unit || editItem.unit === "item")) {
+                      setEditItem({
+                        ...editItem,
+                        isWeighed: checked,
+                        unit: "kg", // Default to kg when enabling weighed
+                      })
+                    } else {
+                      setEditItem({
+                        ...editItem,
+                        isWeighed: checked,
+                        unit: checked ? editItem.unit : "item", // Reset to item if disabling weighed
+                      })
+                    }
+                  }}
                 />
                 <Label htmlFor="edit-isWeighed" className="flex items-center">
                   <Scale className="h-4 w-4 mr-2" />
@@ -1297,10 +1320,10 @@ export default function InventoryPage() {
                 <div className="grid gap-2">
                   <Label htmlFor="edit-unit">Unit of Measurement</Label>
                   <Select
-                    value={editItem.unit || "item"}
+                    value={editItem.unit || "kg"}
                     onValueChange={(value: string) => {
-                      if (value === "kg" || value === "lb" || value === "item") {
-                        setEditItem({ ...editItem, unit: value as "item" | "kg" | "lb" })
+                      if (value === "kg" || value === "lb") {
+                        setEditItem({ ...editItem, unit: value as "kg" | "lb" })
                       }
                     }}
                   >
@@ -1310,7 +1333,6 @@ export default function InventoryPage() {
                     <SelectContent>
                       <SelectItem value="kg">Kilograms (kg)</SelectItem>
                       <SelectItem value="lb">Pounds (lb)</SelectItem>
-                      <SelectItem value="item">Items</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

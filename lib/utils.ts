@@ -15,7 +15,16 @@ export function formatCurrency(amount: number): string {
   }).format(amount)
 }
 
-// Format number to show at most 1 decimal place
+// Update the formatNumber function to handle decimal places consistently
 export function formatNumber(num: number): string {
-  return Number.isInteger(num) ? num.toString() : num.toFixed(1)
+  // Always display with 1 decimal place for consistency
+  return num.toFixed(1)
+}
+
+// Add a new function specifically for weight formatting
+export function formatWeight(weight: number): string {
+  // First round to 1 decimal place to avoid floating point precision issues
+  const rounded = Math.round(weight * 10) / 10
+  // Then ensure it always displays with 1 decimal place
+  return rounded.toFixed(1)
 }

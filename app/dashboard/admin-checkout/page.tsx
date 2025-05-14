@@ -26,6 +26,49 @@ import { Label } from "@/components/ui/label"
 import { processDirectCheckout, getInventoryItems, getCategories } from "@/lib/data-db"
 import { toast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { supabaseConfig } from "@/lib/supabase-config"
+import { formatWeight } from "@/lib/utils"
+
+// Safe API approach with validation
+const API_URL =
+  typeof supabaseConfig.supabaseUrl === "string" && supabaseConfig.supabaseUrl.startsWith("http")
+    ? supabaseConfig.supabaseUrl
+    : ""
+const API_KEY = supabaseConfig.supabaseAnonKey || ""
+
+// Simple fetch wrapper with better error handling
+async function fetchSupabase(endpoint: string, options: RequestInit = {}) {
+  if (!API_URL) {
+    console.error("Invalid Supabase URL configuration")
+    return { error: "Database configuration error" }
+  }
+
+  try {
+    const url = `${API_URL}${endpoint}`
+    const headers = {
+      ...options.headers,
+      apikey: API_KEY,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} - ${JSON.stringify(data)}`)
+    }
+
+    return data
+  } catch (error) {
+    console.error(`Fetch error:`, error)
+    throw error
+  }
+}
 
 export default function AdminCheckoutPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -63,8 +106,21 @@ export default function AdminCheckoutPage() {
 
         // Load inventory items using our existing function
         const inventoryItems = await getInventoryItems()
-        setItems(inventoryItems)
-        setFilteredItems(inventoryItems)
+
+        // Format the weights for all weighed items
+        const formattedItems = inventoryItems.map((item) => {
+          if (item.isWeighed && typeof item.quantity === "number") {
+            // Create a new object with the formatted quantity
+            return {
+              ...item,
+              displayQuantity: formatWeight(item.quantity),
+            }
+          }
+          return item
+        })
+
+        setItems(formattedItems)
+        setFilteredItems(formattedItems)
 
         // Load categories using our existing function
         const categoriesData = await getCategories()
@@ -82,7 +138,18 @@ export default function AdminCheckoutPage() {
               .limit(5)
 
             if (!checkoutsError && checkoutsData) {
-              setRecentCheckouts(checkoutsData)
+              // Format the weights in the checkout data
+              const formattedCheckouts = checkoutsData.map((checkout) => {
+                if (checkout.unit === "kg" || checkout.unit === "lb") {
+                  return {
+                    ...checkout,
+                    displayQuantity: formatWeight(checkout.quantity),
+                  }
+                }
+                return checkout
+              })
+
+              setRecentCheckouts(formattedCheckouts)
             }
           }
         } catch (error) {
@@ -307,8 +374,8 @@ export default function AdminCheckoutPage() {
   // Format quantity for display
   const formatQuantity = (quantity: number, unit: string | null | undefined) => {
     if (unit === "kg" || unit === "lb") {
-      // For weight units, show up to 1 decimal place
-      return quantity % 1 === 0 ? quantity.toString() : quantity.toFixed(1)
+      // Use the formatWeight function for consistent decimal display
+      return formatWeight(quantity)
     }
     // For items, show whole numbers
     return Math.round(quantity).toString()
@@ -385,9 +452,9 @@ export default function AdminCheckoutPage() {
                   value={selectedCategory}
                   onValueChange={setSelectedCategory}
                 >
-                  <TabsList className="grid grid-cols-3 sm:grid-cols-7">
+                  <TabsList className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1 overflow-x-auto">
                     <TabsTrigger value="all">All</TabsTrigger>
-                    {categories.slice(0, 6).map((category) => (
+                    {categories.map((category) => (
                       <TabsTrigger key={category.id} value={category.id}>
                         {category.name}
                       </TabsTrigger>
@@ -436,7 +503,10 @@ export default function AdminCheckoutPage() {
                               )}
                             </Badge>
                             <p className="text-sm">
-                              Available: <span className="font-medium">{item.quantity}</span>
+                              Available:{" "}
+                              <span className="font-medium">
+                                {item.isWeighed ? formatWeight(item.quantity) : item.quantity}
+                              </span>
                               {item.unit && <span> {item.unit}</span>}
                             </p>
                             {item.hasLimit !== false && (
@@ -497,7 +567,10 @@ export default function AdminCheckoutPage() {
                           <td className="py-2 px-4">{checkout.user_id}</td>
                           <td className="py-2 px-4">{checkout.item_name}</td>
                           <td className="py-2 px-4 text-right">
-                            {formatQuantity(checkout.quantity, checkout.unit)} {checkout.unit || "items"}
+                            {checkout.unit === "kg" || checkout.unit === "lb"
+                              ? formatWeight(checkout.quantity)
+                              : checkout.quantity}{" "}
+                            {checkout.unit || "items"}
                           </td>
                         </tr>
                       ))}
@@ -626,7 +699,7 @@ export default function AdminCheckoutPage() {
                 <span>{selectedItem?.unit}</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Available: {selectedItem?.quantity} {selectedItem?.unit}
+                Available: {selectedItem ? formatWeight(selectedItem.quantity) : ""} {selectedItem?.unit}
               </p>
               {selectedItem && selectedItem.hasLimit !== false && (
                 <p className="text-xs text-muted-foreground flex items-center">

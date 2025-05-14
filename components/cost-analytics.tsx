@@ -21,16 +21,7 @@ import type { InventoryItem, Transaction } from "@/lib/types"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-
-// Helper function to format currency
-const formatCurrency = (value: number): string => {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
-}
+import { formatNumber, formatCurrency } from "@/lib/utils"
 
 // Helper function to truncate text with ellipsis
 const truncateText = (text: string, maxLength = 20): string => {
@@ -380,7 +371,7 @@ export function PriceAndUsageAnalytics() {
             <CardTitle className="text-sm font-medium">Total Usage</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalUsage.toFixed(1)}</div>
+            <div className="text-2xl font-bold">{formatNumber(totalUsage)}</div>
             <p className="text-xs text-muted-foreground">Items taken out</p>
           </CardContent>
         </Card>
@@ -451,7 +442,7 @@ export function PriceAndUsageAnalytics() {
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 12 }} />
                     <Tooltip
-                      formatter={(value) => [value, "Times Used"]}
+                      formatter={(value) => [formatNumber(Number(value)), "Times Used"]}
                       labelFormatter={(label, payload) => {
                         if (payload && payload.length > 0) {
                           return payload[0].payload.fullName || label
@@ -619,7 +610,7 @@ export function PriceAndUsageAnalytics() {
                         <TableRow key={index}>
                           <TableCell className="font-medium">{item.fullName}</TableCell>
                           <TableCell>{formatCurrency(item.price)}</TableCell>
-                          <TableCell>{item.usage}</TableCell>
+                          <TableCell>{formatNumber(item.usage)}</TableCell>
                           <TableCell className="text-right">
                             {formatRatio(item.value)}
                             {item.value > averagePopularityToCost * 2 ? (
@@ -701,11 +692,11 @@ export function PriceAndUsageAnalytics() {
                             </div>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
                               <TrendingUp className="h-3.5 w-3.5" />
-                              <span>Usage: {item.usage || 0} times</span>
+                              <span>Usage: {formatNumber(item.usage || 0)} times</span>
                             </div>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
                               <ShoppingCart className="h-3.5 w-3.5" />
-                              <span>Current inventory: {item.quantity} units</span>
+                              <span>Current inventory: {formatNumber(item.quantity)} units</span>
                             </div>
                           </div>
                           <Badge className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900 dark:text-green-100">
@@ -746,11 +737,11 @@ export function PriceAndUsageAnalytics() {
                             </div>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
                               <TrendingDown className="h-3.5 w-3.5" />
-                              <span>Usage: {item.usage || 0} times</span>
+                              <span>Usage: {formatNumber(item.usage || 0)} times</span>
                             </div>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
                               <ShoppingCart className="h-3.5 w-3.5" />
-                              <span>Current inventory: {item.quantity} units</span>
+                              <span>Current inventory: {formatNumber(item.quantity)} units</span>
                             </div>
                           </div>
                           <Badge className="bg-red-100 text-red-800 hover:bg-red-100 dark:bg-red-900 dark:text-red-100">

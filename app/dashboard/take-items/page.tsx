@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { processDirectCheckout } from "@/lib/data-db"
 import { toast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { formatWeight } from "@/lib/utils"
 
 export default function TakeItemsPage() {
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -51,16 +52,18 @@ export default function TakeItemsPage() {
   const router = useRouter()
 
   useEffect(() => {
-    // Check if user is admin/staff
+    // Check if user is admin/staff - ONLY these types should enable admin mode
     const userType = localStorage.getItem("userType")
+
+    // Explicitly check for admin/staff types
     if (userType === "staff" || userType === "admin") {
       setIsAdminMode(true)
-    } else if (userType !== "student") {
-      // If not student or admin/staff, redirect to login
-      router.push("/login")
-      return
+    } else {
+      // For any other value (including "student" or null/undefined), ensure admin mode is OFF
+      setIsAdminMode(false)
     }
 
+    // Rest of the function remains the same
     const loadData = async () => {
       try {
         setIsLoading(true)
@@ -372,8 +375,8 @@ export default function TakeItemsPage() {
   // Format quantity for display
   const formatQuantity = (quantity: number, unit: string | null | undefined) => {
     if (unit === "kg" || unit === "lb") {
-      // For weight units, show up to 1 decimal place
-      return quantity % 1 === 0 ? quantity.toString() : quantity.toFixed(1)
+      // Use the formatWeight function for consistent decimal display
+      return formatWeight(quantity)
     }
     // For items, show whole numbers
     return Math.round(quantity).toString()
@@ -509,7 +512,10 @@ export default function TakeItemsPage() {
                               )}
                             </Badge>
                             <p className="text-sm">
-                              Available: <span className="font-medium">{item.quantity}</span>
+                              Available:{" "}
+                              <span className="font-medium">
+                                {item.isWeighed ? formatWeight(item.quantity) : item.quantity}
+                              </span>
                               {item.unit && <span> {item.unit}</span>}
                             </p>
                             {item.hasLimit !== false && (
@@ -518,7 +524,7 @@ export default function TakeItemsPage() {
                                 Limit: {item.studentLimit} {item.unit || (item.studentLimit === 1 ? "item" : "items")}
                               </p>
                             )}
-                            {item.cost && (
+                            {item.cost && isAdminMode && (
                               <p className="text-sm text-muted-foreground">
                                 Cost: ${item.cost.toFixed(2)} per {item.unit || "item"}
                               </p>
@@ -551,7 +557,7 @@ export default function TakeItemsPage() {
             <CardHeader>
               <CardTitle className="flex items-center">
                 <ShoppingCart className="h-5 w-5 mr-2" />
-                Your Cart
+                {isAdminMode ? "Admin Checkout" : "Your Cart"}
               </CardTitle>
               <CardDescription>Items you've selected</CardDescription>
             </CardHeader>
@@ -672,7 +678,7 @@ export default function TakeItemsPage() {
                 <span>{selectedItem?.unit}</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Available: {selectedItem?.quantity} {selectedItem?.unit}
+                Available: {selectedItem ? formatWeight(selectedItem.quantity) : ""} {selectedItem?.unit}
               </p>
               {selectedItem && selectedItem.hasLimit !== false && !isAdminMode && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center">
