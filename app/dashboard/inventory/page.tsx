@@ -1264,7 +1264,10 @@ export default function InventoryPage() {
 
               <div className="grid gap-2">
                 <Label htmlFor="edit-category">Category</Label>
-                <Select value={editItem.category} onChange={(value) => setEditItem({ ...editItem, category: value })}>
+                <Select
+                  value={editItem.category}
+                  onValueChange={(value) => setEditItem({ ...editItem, category: value })}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>

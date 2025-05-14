@@ -380,7 +380,7 @@ export function PriceAndUsageAnalytics() {
             <CardTitle className="text-sm font-medium">Total Usage</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalUsage}</div>
+            <div className="text-2xl font-bold">{totalUsage.toFixed(1)}</div>
             <p className="text-xs text-muted-foreground">Items taken out</p>
           </CardContent>
         </Card>
